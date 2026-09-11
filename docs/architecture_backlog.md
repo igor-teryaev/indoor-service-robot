@@ -1,0 +1,3 @@
+- Split chassis-level MotionCommand from wheel-level motor commands.
+- Introduce differential-drive kinematics layer when wheel geometry is known.
+- Keep hard actuator limits in the low-level motor controller.

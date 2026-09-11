@@ -14,8 +14,8 @@ public:
     [[nodiscard]] bool hardware_fault_active() const;
     [[nodiscard]] bool safe() const;
 
-    [[nodiscard]] SafetyStateResult report_estop();
-    [[nodiscard]] SafetyStateResult report_hardware_fault();
+    SafetyStateResult report_estop();
+    SafetyStateResult report_hardware_fault();
 
     [[nodiscard]] SafetyStateResult clear_estop();
     [[nodiscard]] SafetyStateResult clear_hardware_fault();
