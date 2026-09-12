@@ -13,3 +13,7 @@ target_link_libraries(
         robot_core
         GTest::gtest_main
 )
+
+include(GoogleTest)
+
+gtest_discover_tests(indoor_service_robot_tests)

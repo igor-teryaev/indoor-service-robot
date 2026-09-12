@@ -1025,3 +1025,517 @@ TEST(MotionCoordinatorTest, RejectedMotionDoesNotRefreshWatchdog)
         MotionTickResult::TimeoutStopped
     );
 }
+
+TEST(MotionCoordinatorTest, RejectsFiniteMotionThatOverflowsWheelVelocities)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    EXPECT_EQ(
+        coordinator.request_manual_control(),
+        ControlTransitionResult::Accepted
+    );
+
+    constexpr auto now =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand command{
+        .linear_velocity_mps =
+            std::numeric_limits<double>::max(),
+        .angular_velocity_radps =
+            std::numeric_limits<double>::max()
+    };
+
+    EXPECT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            command,
+            now
+        ),
+        MotionCommandResult::InvalidCommand
+    );
+
+    EXPECT_FALSE(
+        motor_controller.set_wheel_velocities_called()
+    );
+
+    EXPECT_FALSE(
+        motion_watchdog.armed()
+    );
+}
+
+TEST(MotionCoordinatorTest, EstopStopsActiveMotionAndDisarmsWatchdog)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    EXPECT_EQ(
+        coordinator.request_manual_control(),
+        ControlTransitionResult::Accepted
+    );
+
+    constexpr auto now =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand command{
+        .linear_velocity_mps = 0.5,
+        .angular_velocity_radps = 0.0
+    };
+
+    ASSERT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            command,
+            now
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    ASSERT_TRUE(motion_watchdog.armed());
+
+    EXPECT_EQ(
+        coordinator.report_estop(),
+        SafetyActionResult::Updated
+    );
+
+    EXPECT_TRUE(safety_state.estop_active());
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+}
+
+TEST(MotionCoordinatorTest, EstopStopFailureLatchesHardwareFault)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+
+    FakeMotorController motor_controller{
+        MotorCommandResult::Failed
+    };
+
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    EXPECT_EQ(
+        coordinator.request_manual_control(),
+        ControlTransitionResult::Accepted
+    );
+
+    constexpr auto now =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand command{
+        .linear_velocity_mps = 0.5,
+        .angular_velocity_radps = 0.0
+    };
+
+    ASSERT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            command,
+            now
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    ASSERT_TRUE(motion_watchdog.armed());
+
+    EXPECT_EQ(
+        coordinator.report_estop(),
+        SafetyActionResult::MotorStopFailed
+    );
+
+    EXPECT_TRUE(safety_state.estop_active());
+    EXPECT_TRUE(safety_state.hardware_fault_active());
+
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+}
+
+TEST(MotionCoordinatorTest, HardwareFaultStopsActiveMotionAndDisarmsWatchdog)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    EXPECT_EQ(
+        coordinator.request_manual_control(),
+        ControlTransitionResult::Accepted
+    );
+
+    constexpr auto now =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand command{
+        .linear_velocity_mps = 0.5,
+        .angular_velocity_radps = 0.0
+    };
+
+    ASSERT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            command,
+            now
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    ASSERT_TRUE(motion_watchdog.armed());
+
+    EXPECT_EQ(
+        coordinator.report_hardware_fault(),
+        SafetyActionResult::Updated
+    );
+
+    EXPECT_TRUE(safety_state.hardware_fault_active());
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+}
+
+TEST(MotionCoordinatorTest, HardwareFaultStopFailureRemainsLatched)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+
+    FakeMotorController motor_controller{
+        MotorCommandResult::Failed
+    };
+
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    EXPECT_EQ(
+        coordinator.request_manual_control(),
+        ControlTransitionResult::Accepted
+    );
+
+    constexpr auto now =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand command{
+        .linear_velocity_mps = 0.5,
+        .angular_velocity_radps = 0.0
+    };
+
+    ASSERT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            command,
+            now
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    ASSERT_TRUE(motion_watchdog.armed());
+
+    EXPECT_EQ(
+        coordinator.report_hardware_fault(),
+        SafetyActionResult::MotorStopFailed
+    );
+
+    EXPECT_TRUE(safety_state.hardware_fault_active());
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+}
+
+TEST(MotionCoordinatorTest, ClearEstopStopsMotorAndPreservesHardwareFault)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    (void)safety_state.report_estop();
+    (void)safety_state.report_hardware_fault();
+
+    ASSERT_TRUE(safety_state.estop_active());
+    ASSERT_TRUE(safety_state.hardware_fault_active());
+
+    EXPECT_EQ(
+        coordinator.clear_estop(),
+        SafetyActionResult::Updated
+    );
+
+    EXPECT_FALSE(safety_state.estop_active());
+    EXPECT_TRUE(safety_state.hardware_fault_active());
+
+    EXPECT_FALSE(safety_state.safe());
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+}
+
+TEST(MotionCoordinatorTest, ClearEstopStopFailureKeepsEstopAndLatchesHardwareFault)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+
+    FakeMotorController motor_controller{
+        MotorCommandResult::Failed
+    };
+
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    (void)safety_state.report_estop();
+
+    ASSERT_TRUE(safety_state.estop_active());
+    ASSERT_FALSE(safety_state.hardware_fault_active());
+
+    EXPECT_EQ(
+        coordinator.clear_estop(),
+        SafetyActionResult::MotorStopFailed
+    );
+
+    EXPECT_TRUE(safety_state.estop_active());
+    EXPECT_TRUE(safety_state.hardware_fault_active());
+
+    EXPECT_FALSE(safety_state.safe());
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+}
+
+TEST(MotionCoordinatorTest, ClearHardwareFaultStopsMotorAndPreservesEstop)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    (void)safety_state.report_estop();
+    (void)safety_state.report_hardware_fault();
+
+    ASSERT_TRUE(safety_state.estop_active());
+    ASSERT_TRUE(safety_state.hardware_fault_active());
+
+    EXPECT_EQ(
+        coordinator.clear_hardware_fault(),
+        SafetyActionResult::Updated
+    );
+
+    EXPECT_TRUE(safety_state.estop_active());
+    EXPECT_FALSE(safety_state.hardware_fault_active());
+
+    EXPECT_FALSE(safety_state.safe());
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+}
+
+TEST(MotionCoordinatorTest, ClearHardwareFaultStopFailureKeepsHardwareFaultActive)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+
+    FakeMotorController motor_controller{
+        MotorCommandResult::Failed
+    };
+
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    (void)safety_state.report_hardware_fault();
+
+    ASSERT_TRUE(safety_state.hardware_fault_active());
+
+    EXPECT_EQ(
+        coordinator.clear_hardware_fault(),
+        SafetyActionResult::MotorStopFailed
+    );
+
+    EXPECT_TRUE(safety_state.hardware_fault_active());
+    EXPECT_FALSE(safety_state.safe());
+
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+}
+
+TEST(MotionCoordinatorTest, SuccessfulStopAndReleaseDisarmsWatchdog)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    EXPECT_EQ(
+        coordinator.request_manual_control(),
+        ControlTransitionResult::Accepted
+    );
+
+    constexpr auto now =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand command{
+        .linear_velocity_mps = 0.5,
+        .angular_velocity_radps = 0.0
+    };
+
+    ASSERT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            command,
+            now
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    ASSERT_TRUE(motion_watchdog.armed());
+
+    EXPECT_EQ(
+        coordinator.stop_and_release_control(),
+        ControlTransitionResult::Accepted
+    );
+
+    EXPECT_FALSE(motion_watchdog.armed());
+
+    EXPECT_EQ(
+        coordinator.tick(now + MOTION_TIMEOUT),
+        MotionTickResult::NoAction
+    );
+}
+
+TEST(MotionCoordinatorTest, ManualToAutonomousDisarmsWatchdogAfterSuccessfulStop)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog,
+        kinematics
+    );
+
+    ASSERT_EQ(
+        coordinator.request_manual_control(),
+        ControlTransitionResult::Accepted
+    );
+
+    constexpr auto now =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand command{
+        .linear_velocity_mps = 0.5,
+        .angular_velocity_radps = 0.0
+    };
+
+    ASSERT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            command,
+            now
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    ASSERT_TRUE(motion_watchdog.armed());
+
+    EXPECT_EQ(
+        coordinator.request_autonomous_control(),
+        ControlTransitionResult::Accepted
+    );
+
+    EXPECT_EQ(
+        control_state.authority(),
+        ControlAuthority::Autonomous
+    );
+
+    EXPECT_FALSE(motion_watchdog.armed());
+
+    EXPECT_EQ(
+        coordinator.tick(now + MOTION_TIMEOUT),
+        MotionTickResult::NoAction
+    );
+}

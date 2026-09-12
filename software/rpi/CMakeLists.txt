@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.24)
 
 project(indoor_service_robot LANGUAGES CXX)
 
@@ -30,17 +30,18 @@ target_link_libraries(
         PRIVATE
         robot_core
 )
+if(BUILD_TESTING)
+    include(FetchContent)
 
-include(FetchContent)
+    FetchContent_Declare(
+            googletest
+            URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
 
-FetchContent_Declare(
-        googletest
-        URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
 
-FetchContent_MakeAvailable(googletest)
-
-add_subdirectory(tests)
+    add_subdirectory(tests)
+endif()

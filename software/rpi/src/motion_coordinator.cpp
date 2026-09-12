@@ -35,11 +35,13 @@ ControlTransitionResult MotionCoordinator::request_manual_control()
 
 ControlTransitionResult MotionCoordinator::stop_and_release_control()
 {
-    if (motor_controller_.stop() == MotorCommandResult::Failed)
+    if (motor_controller_.stop() != MotorCommandResult::Success)
     {
-        (void)safety_state_.report_hardware_fault();
+        safety_state_.report_hardware_fault();
         return ControlTransitionResult::MotorStopFailed;
     }
+
+    motion_watchdog_.disarm();
 
     switch (control_state_.request_release_control())
     {
@@ -63,6 +65,8 @@ ControlTransitionResult MotionCoordinator::request_autonomous_control()
             (void)safety_state_.report_hardware_fault();
             return ControlTransitionResult::MotorStopFailed;
         }
+
+        motion_watchdog_.disarm();
 
         if (control_state_.request_release_control() != ControlRequestResult::Accepted)
         {
@@ -119,6 +123,12 @@ MotionCommandResult MotionCoordinator::request_motion(
     const auto wheel_velocities =
         kinematics_.to_wheel_velocities(command);
 
+    if (!std::isfinite(wheel_velocities.left_mps) ||
+        !std::isfinite(wheel_velocities.right_mps))
+    {
+        return MotionCommandResult::InvalidCommand;
+    }
+
     if (motor_controller_.set_wheel_velocities(wheel_velocities) ==
         MotorCommandResult::Success)
     {
@@ -148,4 +158,84 @@ MotionTickResult MotionCoordinator::tick(
 
     safety_state_.report_hardware_fault();
     return MotionTickResult::MotorStopFailed;
+}
+
+SafetyActionResult MotionCoordinator::report_estop()
+{
+    const auto state_result =
+        safety_state_.report_estop();
+
+    motion_watchdog_.disarm();
+
+    if (motor_controller_.stop() != MotorCommandResult::Success)
+    {
+        safety_state_.report_hardware_fault();
+        return SafetyActionResult::MotorStopFailed;
+    }
+
+    if (state_result == SafetyStateResult::Updated)
+    {
+        return SafetyActionResult::Updated;
+    }
+
+    return SafetyActionResult::AlreadyActive;
+}
+
+SafetyActionResult MotionCoordinator::report_hardware_fault()
+{
+    const auto state_result =
+        safety_state_.report_hardware_fault();
+
+    motion_watchdog_.disarm();
+
+    if (motor_controller_.stop() != MotorCommandResult::Success)
+    {
+        return SafetyActionResult::MotorStopFailed;
+    }
+
+    if (state_result == SafetyStateResult::Updated)
+    {
+        return SafetyActionResult::Updated;
+    }
+
+    return SafetyActionResult::AlreadyActive;
+}
+
+SafetyActionResult MotionCoordinator::clear_estop()
+{
+    if (!safety_state_.estop_active())
+    {
+        return SafetyActionResult::AlreadyClear;
+    }
+
+    motion_watchdog_.disarm();
+
+    if (motor_controller_.stop() != MotorCommandResult::Success)
+    {
+        safety_state_.report_hardware_fault();
+        return SafetyActionResult::MotorStopFailed;
+    }
+
+    (void)safety_state_.clear_estop();
+
+    return SafetyActionResult::Updated;
+}
+
+SafetyActionResult MotionCoordinator::clear_hardware_fault()
+{
+    if (!safety_state_.hardware_fault_active())
+    {
+        return SafetyActionResult::AlreadyClear;
+    }
+
+    motion_watchdog_.disarm();
+
+    if (motor_controller_.stop() != MotorCommandResult::Success)
+    {
+        return SafetyActionResult::MotorStopFailed;
+    }
+
+    (void)safety_state_.clear_hardware_fault();
+
+    return SafetyActionResult::Updated;
 }

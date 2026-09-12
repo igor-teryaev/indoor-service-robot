@@ -53,6 +53,8 @@ E-STOP / hardware fault
 manual ELRS control
         ↓
 Raspberry Pi autonomous control
+```
+
 Safety principles
 - Motion commands have a bounded validity period.
 - Loss of an active control source results in a safe stop.

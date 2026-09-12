@@ -3,6 +3,8 @@ build/
 Debug/
 Release/
 out/
+cmake-build-*/
+build-*/
 
 # C/C++
 *.o

@@ -23,6 +23,14 @@ enum class MotionTickResult
     MotorStopFailed
 };
 
+enum class SafetyActionResult
+{
+    Updated,
+    AlreadyActive,
+    AlreadyClear,
+    MotorStopFailed
+};
+
 class MotionCoordinator
 {
 public:
@@ -42,6 +50,12 @@ public:
         MotionWatchdog::Clock::time_point now);
     [[nodiscard]] MotionTickResult tick(
         MotionWatchdog::Clock::time_point now);
+
+    [[nodiscard]] SafetyActionResult report_estop();
+    [[nodiscard]] SafetyActionResult report_hardware_fault();
+
+    [[nodiscard]] SafetyActionResult clear_estop();
+    [[nodiscard]] SafetyActionResult clear_hardware_fault();
 private:
     ControlState& control_state_;
     SafetyState& safety_state_;
