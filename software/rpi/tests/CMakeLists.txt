@@ -3,6 +3,7 @@ add_executable(
         control_state_test.cpp
         safety_state_test.cpp
         motion_coordinator_test.cpp
+        motion_watchdog_test.cpp
 )
 
 target_link_libraries(

@@ -9,10 +9,12 @@ constexpr double ANGULAR_STOP_EPSILON_RADPS = 1e-5;
 MotionCoordinator::MotionCoordinator(
     ControlState& control_state,
     SafetyState& safety_state,
-    IMotorController& motor_controller)
+    IMotorController& motor_controller,
+    MotionWatchdog& motion_watchdog)
     : control_state_(control_state),
       safety_state_(safety_state),
-      motor_controller_(motor_controller)
+      motor_controller_(motor_controller),
+      motion_watchdog_(motion_watchdog)
 {
 }
 
@@ -77,7 +79,10 @@ ControlTransitionResult MotionCoordinator::request_autonomous_control()
     }
 }
 
-MotionCommandResult MotionCoordinator::request_motion(ControlAuthority requester, const MotionCommand& command)
+MotionCommandResult MotionCoordinator::request_motion(
+    ControlAuthority requester,
+    const MotionCommand& command,
+    MotionWatchdog::Clock::time_point now)
 {
     if (requester == ControlAuthority::None ||
         requester != control_state_.authority())
@@ -96,12 +101,12 @@ MotionCommandResult MotionCoordinator::request_motion(ControlAuthority requester
     {
         if (motor_controller_.stop() == MotorCommandResult::Success)
         {
+            motion_watchdog_.disarm();
             return MotionCommandResult::Accepted;
         }
 
         safety_state_.report_hardware_fault();
         return MotionCommandResult::MotorCommandFailed;
-
     }
 
     if (!safety_state_.safe())
@@ -111,10 +116,30 @@ MotionCommandResult MotionCoordinator::request_motion(ControlAuthority requester
 
     if (motor_controller_.set_motion(command) == MotorCommandResult::Success)
     {
+        motion_watchdog_.refresh(now);
         return MotionCommandResult::Accepted;
     }
 
     safety_state_.report_hardware_fault();
     (void)motor_controller_.stop();
     return MotionCommandResult::MotorCommandFailed;
+}
+
+MotionTickResult MotionCoordinator::tick(
+    MotionWatchdog::Clock::time_point now)
+{
+    if (!motion_watchdog_.expired(now))
+    {
+        return MotionTickResult::NoAction;
+    }
+
+    motion_watchdog_.disarm();
+
+    if (motor_controller_.stop() == MotorCommandResult::Success)
+    {
+        return MotionTickResult::TimeoutStopped;
+    }
+
+    safety_state_.report_hardware_fault();
+    return MotionTickResult::MotorStopFailed;
 }

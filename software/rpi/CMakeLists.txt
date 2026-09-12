@@ -10,6 +10,7 @@ add_library(
         src/control_state.cpp
         src/safety_state.cpp
         src/motion_coordinator.cpp
+        src/motion_watchdog.cpp
 )
 
 target_include_directories(

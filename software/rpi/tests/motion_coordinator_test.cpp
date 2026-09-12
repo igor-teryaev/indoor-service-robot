@@ -3,12 +3,14 @@
 
 #include "motion_coordinator.h"
 #include "fake_motor_controller.h"
+#include "motion_config.h"
 
 TEST(MotionCoordinatorTest, StopsMotorsAndReleasesManualControl)
 {
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -18,7 +20,8 @@ TEST(MotionCoordinatorTest, StopsMotorsAndReleasesManualControl)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result =
@@ -47,7 +50,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenMotorStopFails)
 {
     ControlState control_state;
     SafetyState safety_state;
-
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller(
         MotorCommandResult::Failed
     );
@@ -60,7 +63,8 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenMotorStopFails)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result =
@@ -90,11 +94,13 @@ TEST(MotionCoordinatorTest, CallsStopWhenControlAlreadyReleased)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller);
+        motor_controller,
+        motion_watchdog);
 
     const auto result = coordinator.stop_and_release_control();
 
@@ -108,6 +114,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenAlreadyReleasedStopFails)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller(
         MotorCommandResult::Failed
 );
@@ -115,7 +122,8 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenAlreadyReleasedStopFails)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller);
+        motor_controller,
+        motion_watchdog);
 
     const auto result = coordinator.stop_and_release_control();
 
@@ -130,6 +138,7 @@ TEST(MotionCoordinatorTest, StopsMotorsAndReleasesAutonomousControl)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
         control_state.request_autonomous_control(),
@@ -139,7 +148,8 @@ TEST(MotionCoordinatorTest, StopsMotorsAndReleasesAutonomousControl)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result =
@@ -169,6 +179,7 @@ TEST(MotionCoordinatorTest, RequestsManualControlFromAutonomous)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
         control_state.request_autonomous_control(),
@@ -178,7 +189,8 @@ TEST(MotionCoordinatorTest, RequestsManualControlFromAutonomous)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result =
@@ -204,6 +216,7 @@ TEST(MotionCoordinatorTest, ReportsAlreadyActiveWhenManualControlAlreadyActive)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -213,7 +226,8 @@ TEST(MotionCoordinatorTest, ReportsAlreadyActiveWhenManualControlAlreadyActive)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result =
@@ -239,11 +253,13 @@ TEST(MotionCoordinatorTest, RequestsManualControlFromNoAuthority)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result =
@@ -268,6 +284,7 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopSuccess)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller(
         MotorCommandResult::Success);
 
@@ -278,7 +295,8 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopSuccess)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result = coordinator.request_autonomous_control();
@@ -292,6 +310,7 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopFailed)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller(
         MotorCommandResult::Failed);
 
@@ -302,7 +321,8 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopFailed)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result = coordinator.request_autonomous_control();
@@ -316,12 +336,14 @@ TEST(MotionCoordinatorTest, NoneToAutonomousControl)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result = coordinator.request_autonomous_control();
@@ -335,6 +357,7 @@ TEST(MotionCoordinatorTest, AutonomousToAutonomousControl)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -344,7 +367,8 @@ TEST(MotionCoordinatorTest, AutonomousToAutonomousControl)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     const auto result = coordinator.request_autonomous_control();
@@ -358,19 +382,22 @@ TEST(MotionCoordinatorTest, RejectsMotionWhenNoAuthorityIsActive)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     constexpr MotionCommand command{.linear_velocity_mps = 0.5, .angular_velocity_radps = 0.0};
+    const auto now = MotionWatchdog::Clock::time_point{};
 
     EXPECT_EQ(coordinator.request_motion(
         control_state.authority(),
-        command),
+        command, now),
         MotionCommandResult::RejectedWrongAuthority);
     EXPECT_FALSE(motor_controller.stop_called());
     EXPECT_FALSE(motor_controller.set_motion_called());
@@ -381,6 +408,7 @@ TEST(MotionCoordinatorTest, RejectsAutonomousMotionWhileManualControlIsActive)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -390,14 +418,15 @@ TEST(MotionCoordinatorTest, RejectsAutonomousMotionWhileManualControlIsActive)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     constexpr MotionCommand command{.linear_velocity_mps = 0.5, .angular_velocity_radps = 0.0};
-
+    const auto now = MotionWatchdog::Clock::time_point{};
     EXPECT_EQ(coordinator.request_motion(
         ControlAuthority::Autonomous,
-        command),
+        command, now),
         MotionCommandResult::RejectedWrongAuthority);
     EXPECT_FALSE(motor_controller.stop_called());
     EXPECT_FALSE(motor_controller.set_motion_called());
@@ -409,6 +438,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWithNaN)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -419,18 +449,19 @@ TEST(MotionCoordinatorTest, RejectsMotionWithNaN)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     constexpr MotionCommand command{
         .linear_velocity_mps = std::numeric_limits<double>::quiet_NaN(),
         .angular_velocity_radps = 0.0
     };
-
+    const auto now = MotionWatchdog::Clock::time_point{};
     EXPECT_EQ(
         coordinator.request_motion(
             ControlAuthority::Manual,
-            command
+            command, now
         ),
         MotionCommandResult::InvalidCommand
     );
@@ -448,6 +479,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWithInfinity)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -458,18 +490,19 @@ TEST(MotionCoordinatorTest, RejectsMotionWithInfinity)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     constexpr MotionCommand command{
         .linear_velocity_mps = 0.5,
         .angular_velocity_radps = std::numeric_limits<double>::infinity()
     };
-
+    const auto now = MotionWatchdog::Clock::time_point{};
     EXPECT_EQ(
         coordinator.request_motion(
             ControlAuthority::Manual,
-            command
+            command, now
         ),
         MotionCommandResult::InvalidCommand
     );
@@ -487,6 +520,7 @@ TEST(MotionCoordinatorTest, AllowsStopWhileUnsafe)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -502,18 +536,19 @@ TEST(MotionCoordinatorTest, AllowsStopWhileUnsafe)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     constexpr MotionCommand command{
         .linear_velocity_mps = 0.0,
         .angular_velocity_radps = 0.0
     };
-
+    const auto now = MotionWatchdog::Clock::time_point{};
     EXPECT_EQ(
         coordinator.request_motion(
             ControlAuthority::Manual,
-            command
+            command, now
         ),
         MotionCommandResult::Accepted
     );
@@ -533,6 +568,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWhileUnsafe)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -548,18 +584,19 @@ TEST(MotionCoordinatorTest, RejectsMotionWhileUnsafe)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     constexpr MotionCommand command{
         .linear_velocity_mps = 0.5,
         .angular_velocity_radps = 0.0
     };
-
+    const auto now = MotionWatchdog::Clock::time_point{};
     EXPECT_EQ(
         coordinator.request_motion(
             ControlAuthority::Manual,
-            command
+            command, now
         ),
         MotionCommandResult::RejectedUnsafe
     );
@@ -579,6 +616,7 @@ TEST(MotionCoordinatorTest, SendsValidMotionCommandToMotorController)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -589,18 +627,19 @@ TEST(MotionCoordinatorTest, SendsValidMotionCommandToMotorController)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     constexpr MotionCommand command{
         .linear_velocity_mps = 0.5,
         .angular_velocity_radps = 0.7
     };
-
+    const auto now = MotionWatchdog::Clock::time_point{};
     EXPECT_EQ(
         coordinator.request_motion(
             ControlAuthority::Manual,
-            command
+            command, now
         ),
         MotionCommandResult::Accepted
     );
@@ -625,6 +664,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenSetMotionFails)
 {
     ControlState control_state;
     SafetyState safety_state;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     FakeMotorController motor_controller(
         MotorCommandResult::Success,
@@ -639,18 +679,19 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenSetMotionFails)
     MotionCoordinator coordinator(
         control_state,
         safety_state,
-        motor_controller
+        motor_controller,
+        motion_watchdog
     );
 
     constexpr MotionCommand command{
         .linear_velocity_mps = 0.5,
         .angular_velocity_radps = 0.7
     };
-
+    const auto now = MotionWatchdog::Clock::time_point{};
     EXPECT_EQ(
         coordinator.request_motion(
             ControlAuthority::Manual,
-            command
+            command, now
         ),
         MotionCommandResult::MotorCommandFailed
     );
@@ -663,5 +704,272 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenSetMotionFails)
     EXPECT_EQ(
         control_state.authority(),
         ControlAuthority::Manual
+    );
+}
+
+TEST(MotionCoordinatorTest, AcceptedMotionArmsWatchdog)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+
+    ASSERT_EQ(
+        control_state.request_manual_control(),
+        ControlRequestResult::Accepted
+    );
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog
+    );
+
+    const auto t0 =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand command{
+        .linear_velocity_mps = 0.5,
+        .angular_velocity_radps = 0.2
+    };
+
+    ASSERT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            command,
+            t0
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    EXPECT_TRUE(motion_watchdog.armed());
+
+    EXPECT_FALSE(
+        motion_watchdog.expired(t0)
+    );
+
+    EXPECT_TRUE(
+        motion_watchdog.expired(
+            t0 + MOTION_TIMEOUT
+        )
+    );
+}
+
+TEST(MotionCoordinatorTest, AcceptedStopDisarmsWatchdog)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+
+    ASSERT_EQ(
+        control_state.request_manual_control(),
+        ControlRequestResult::Accepted
+    );
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog
+    );
+
+    const auto t0 =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand move_command{
+        .linear_velocity_mps = 0.5,
+        .angular_velocity_radps = 0.2
+    };
+
+    ASSERT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            move_command,
+            t0
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    ASSERT_TRUE(motion_watchdog.armed());
+
+    constexpr MotionCommand stop_command{
+        .linear_velocity_mps = 0.0,
+        .angular_velocity_radps = 0.0
+    };
+
+    const auto t1 =
+        t0 + std::chrono::milliseconds{500};
+
+    EXPECT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            stop_command,
+            t1
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+
+    EXPECT_FALSE(
+        motion_watchdog.expired(
+            t1 + MOTION_TIMEOUT + std::chrono::seconds{10}
+        )
+    );
+}
+
+TEST(MotionCoordinatorTest, TickDoesNothingBeforeTimeout)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog
+    );
+
+    const auto t0 =
+        MotionWatchdog::Clock::time_point{};
+
+    motion_watchdog.refresh(t0);
+
+    EXPECT_EQ(
+        coordinator.tick(
+            t0 + MOTION_TIMEOUT - std::chrono::milliseconds{1}
+        ),
+        MotionTickResult::NoAction
+    );
+
+    EXPECT_FALSE(motor_controller.stop_called());
+    EXPECT_TRUE(motion_watchdog.armed());
+    EXPECT_FALSE(safety_state.hardware_fault_active());
+}
+
+TEST(MotionCoordinatorTest, TickStopsMotionOnTimeout)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog
+    );
+
+    const auto t0 =
+        MotionWatchdog::Clock::time_point{};
+
+    motion_watchdog.refresh(t0);
+
+    EXPECT_EQ(
+        coordinator.tick(
+            t0 + MOTION_TIMEOUT
+        ),
+        MotionTickResult::TimeoutStopped
+    );
+
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+    EXPECT_FALSE(safety_state.hardware_fault_active());
+}
+
+TEST(MotionCoordinatorTest, TickReportsHardwareFaultWhenTimeoutStopFails)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+
+    FakeMotorController motor_controller(
+        MotorCommandResult::Failed
+    );
+
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog
+    );
+
+    const auto t0 =
+        MotionWatchdog::Clock::time_point{};
+
+    motion_watchdog.refresh(t0);
+
+    EXPECT_EQ(
+        coordinator.tick(
+            t0 + MOTION_TIMEOUT
+        ),
+        MotionTickResult::MotorStopFailed
+    );
+
+    EXPECT_TRUE(motor_controller.stop_called());
+    EXPECT_FALSE(motion_watchdog.armed());
+    EXPECT_TRUE(safety_state.hardware_fault_active());
+}
+
+TEST(MotionCoordinatorTest, RejectedMotionDoesNotRefreshWatchdog)
+{
+    ControlState control_state;
+    SafetyState safety_state;
+    FakeMotorController motor_controller;
+    MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+
+    ASSERT_EQ(
+        control_state.request_manual_control(),
+        ControlRequestResult::Accepted
+    );
+
+    MotionCoordinator coordinator(
+        control_state,
+        safety_state,
+        motor_controller,
+        motion_watchdog
+    );
+
+    const auto t0 =
+        MotionWatchdog::Clock::time_point{};
+
+    constexpr MotionCommand command{
+        .linear_velocity_mps = 0.5,
+        .angular_velocity_radps = 0.0
+    };
+
+    ASSERT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Manual,
+            command,
+            t0
+        ),
+        MotionCommandResult::Accepted
+    );
+
+    const auto t1 =
+        t0 + std::chrono::milliseconds{1000};
+
+    EXPECT_EQ(
+        coordinator.request_motion(
+            ControlAuthority::Autonomous,
+            command,
+            t1
+        ),
+        MotionCommandResult::RejectedWrongAuthority
+    );
+
+    EXPECT_EQ(
+        coordinator.tick(
+            t0 + MOTION_TIMEOUT
+        ),
+        MotionTickResult::TimeoutStopped
     );
 }
