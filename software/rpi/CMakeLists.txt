@@ -11,6 +11,7 @@ add_library(
         src/safety_state.cpp
         src/motion_coordinator.cpp
         src/motion_watchdog.cpp
+        src/differential_drive_kinematics.cpp
 )
 
 target_include_directories(

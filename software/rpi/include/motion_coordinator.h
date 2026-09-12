@@ -5,6 +5,7 @@
 #include "safety_state.h"
 #include "motion_command.h"
 #include "motion_watchdog.h"
+#include "differential_drive_kinematics.h"
 
 enum class ControlTransitionResult
 {
@@ -29,7 +30,8 @@ public:
         ControlState& control_state,
         SafetyState& safety_state,
         IMotorController& motor_controller,
-        MotionWatchdog& motion_watchdog);
+        MotionWatchdog& motion_watchdog,
+        DifferentialDriveKinematics& kinematics);
 
     [[nodiscard]] ControlTransitionResult stop_and_release_control();
     [[nodiscard]] ControlTransitionResult request_manual_control();
@@ -45,4 +47,5 @@ private:
     SafetyState& safety_state_;
     IMotorController& motor_controller_;
     MotionWatchdog& motion_watchdog_;
+    DifferentialDriveKinematics& kinematics_;
 };

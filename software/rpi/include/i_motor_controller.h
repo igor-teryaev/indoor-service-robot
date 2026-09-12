@@ -1,6 +1,6 @@
 #pragma once
 
-#include "motion_command.h"
+#include "wheel_velocities.h"
 
 enum class MotorCommandResult
 {
@@ -15,5 +15,5 @@ public:
 
     virtual MotorCommandResult stop() = 0;
 
-    virtual MotorCommandResult set_motion(const MotionCommand& command) = 0;
+    virtual MotorCommandResult set_wheel_velocities(const WheelVelocities& velocities) = 0;
 };

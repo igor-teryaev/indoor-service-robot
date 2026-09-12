@@ -9,7 +9,7 @@ public:
         MotorCommandResult stop_result = MotorCommandResult::Success,
         MotorCommandResult set_motion_result = MotorCommandResult::Success)
             : stop_result_(stop_result),
-              set_motion_result_(set_motion_result)
+              set_wheel_velocities_result_(set_motion_result)
     {}
 
     MotorCommandResult stop() override
@@ -18,13 +18,12 @@ public:
         return stop_result_;
     }
 
-    MotorCommandResult set_motion(
-        const MotionCommand& command) override
+    MotorCommandResult set_wheel_velocities(const WheelVelocities& velocities) override
     {
-        set_motion_called_ = true;
-        last_motion_ = command;
+        set_wheel_velocities_called_ = true;
+        last_wheel_velocities_ = velocities;
 
-        return set_motion_result_;
+        return set_wheel_velocities_result_;
     }
 
     [[nodiscard]] bool stop_called() const
@@ -32,22 +31,21 @@ public:
         return stop_called_;
     }
 
-    [[nodiscard]] bool set_motion_called() const
+    [[nodiscard]] bool set_wheel_velocities_called() const
     {
-        return set_motion_called_;
+        return set_wheel_velocities_called_;
     }
 
-    [[nodiscard]] const MotionCommand& last_motion() const
+    [[nodiscard]] const WheelVelocities& last_wheel_velocities() const
     {
-        return last_motion_;
+        return last_wheel_velocities_;
     }
 
 private:
     MotorCommandResult stop_result_;
-    MotorCommandResult set_motion_result_;
+    MotorCommandResult set_wheel_velocities_result_;
 
     bool stop_called_ = false;
-    bool set_motion_called_ = false;
-
-    MotionCommand last_motion_{0.0, 0.0};
+    bool set_wheel_velocities_called_ = false;
+    WheelVelocities last_wheel_velocities_{0.0, 0.0};
 };

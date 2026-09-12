@@ -10,11 +10,13 @@ MotionCoordinator::MotionCoordinator(
     ControlState& control_state,
     SafetyState& safety_state,
     IMotorController& motor_controller,
-    MotionWatchdog& motion_watchdog)
+    MotionWatchdog& motion_watchdog,
+    DifferentialDriveKinematics& kinematics)
     : control_state_(control_state),
       safety_state_(safety_state),
       motor_controller_(motor_controller),
-      motion_watchdog_(motion_watchdog)
+      motion_watchdog_(motion_watchdog),
+      kinematics_(kinematics)
 {
 }
 
@@ -114,7 +116,11 @@ MotionCommandResult MotionCoordinator::request_motion(
         return MotionCommandResult::RejectedUnsafe;
     }
 
-    if (motor_controller_.set_motion(command) == MotorCommandResult::Success)
+    const auto wheel_velocities =
+        kinematics_.to_wheel_velocities(command);
+
+    if (motor_controller_.set_wheel_velocities(wheel_velocities) ==
+        MotorCommandResult::Success)
     {
         motion_watchdog_.refresh(now);
         return MotionCommandResult::Accepted;

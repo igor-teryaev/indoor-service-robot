@@ -4,6 +4,7 @@ add_executable(
         safety_state_test.cpp
         motion_coordinator_test.cpp
         motion_watchdog_test.cpp
+        differential_drive_kinematics_test.cpp
 )
 
 target_link_libraries(

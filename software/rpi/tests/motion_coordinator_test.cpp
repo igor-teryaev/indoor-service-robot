@@ -11,6 +11,7 @@ TEST(MotionCoordinatorTest, StopsMotorsAndReleasesManualControl)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -21,7 +22,8 @@ TEST(MotionCoordinatorTest, StopsMotorsAndReleasesManualControl)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result =
@@ -51,6 +53,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenMotorStopFails)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller(
         MotorCommandResult::Failed
     );
@@ -64,7 +67,8 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenMotorStopFails)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result =
@@ -94,13 +98,15 @@ TEST(MotionCoordinatorTest, CallsStopWhenControlAlreadyReleased)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    DifferentialDriveKinematics kinematics{0.4};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog);
+        motion_watchdog,
+        kinematics);
 
     const auto result = coordinator.stop_and_release_control();
 
@@ -115,6 +121,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenAlreadyReleasedStopFails)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller(
         MotorCommandResult::Failed
 );
@@ -123,7 +130,8 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenAlreadyReleasedStopFails)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog);
+        motion_watchdog,
+        kinematics);
 
     const auto result = coordinator.stop_and_release_control();
 
@@ -138,6 +146,7 @@ TEST(MotionCoordinatorTest, StopsMotorsAndReleasesAutonomousControl)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    DifferentialDriveKinematics kinematics{0.4};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
@@ -149,7 +158,8 @@ TEST(MotionCoordinatorTest, StopsMotorsAndReleasesAutonomousControl)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result =
@@ -179,6 +189,7 @@ TEST(MotionCoordinatorTest, RequestsManualControlFromAutonomous)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    DifferentialDriveKinematics kinematics{0.4};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
@@ -190,7 +201,8 @@ TEST(MotionCoordinatorTest, RequestsManualControlFromAutonomous)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result =
@@ -216,6 +228,7 @@ TEST(MotionCoordinatorTest, ReportsAlreadyActiveWhenManualControlAlreadyActive)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    DifferentialDriveKinematics kinematics{0.4};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
@@ -227,7 +240,8 @@ TEST(MotionCoordinatorTest, ReportsAlreadyActiveWhenManualControlAlreadyActive)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result =
@@ -253,13 +267,15 @@ TEST(MotionCoordinatorTest, RequestsManualControlFromNoAuthority)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
+    DifferentialDriveKinematics kinematics{0.4};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result =
@@ -285,6 +301,7 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopSuccess)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller(
         MotorCommandResult::Success);
 
@@ -296,7 +313,8 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopSuccess)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result = coordinator.request_autonomous_control();
@@ -311,6 +329,7 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopFailed)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller(
         MotorCommandResult::Failed);
 
@@ -322,7 +341,8 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopFailed)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result = coordinator.request_autonomous_control();
@@ -337,13 +357,15 @@ TEST(MotionCoordinatorTest, NoneToAutonomousControl)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller;
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result = coordinator.request_autonomous_control();
@@ -358,6 +380,7 @@ TEST(MotionCoordinatorTest, AutonomousToAutonomousControl)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -368,7 +391,8 @@ TEST(MotionCoordinatorTest, AutonomousToAutonomousControl)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto result = coordinator.request_autonomous_control();
@@ -384,13 +408,13 @@ TEST(MotionCoordinatorTest, RejectsMotionWhenNoAuthorityIsActive)
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
-
+    DifferentialDriveKinematics kinematics{0.4};
     MotionCoordinator coordinator(
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
-    );
+        motion_watchdog,
+        kinematics);
 
     constexpr MotionCommand command{.linear_velocity_mps = 0.5, .angular_velocity_radps = 0.0};
     const auto now = MotionWatchdog::Clock::time_point{};
@@ -400,7 +424,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWhenNoAuthorityIsActive)
         command, now),
         MotionCommandResult::RejectedWrongAuthority);
     EXPECT_FALSE(motor_controller.stop_called());
-    EXPECT_FALSE(motor_controller.set_motion_called());
+    EXPECT_FALSE(motor_controller.set_wheel_velocities_called());
     EXPECT_FALSE(safety_state.hardware_fault_active());
 }
 
@@ -409,6 +433,7 @@ TEST(MotionCoordinatorTest, RejectsAutonomousMotionWhileManualControlIsActive)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -419,7 +444,8 @@ TEST(MotionCoordinatorTest, RejectsAutonomousMotionWhileManualControlIsActive)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     constexpr MotionCommand command{.linear_velocity_mps = 0.5, .angular_velocity_radps = 0.0};
@@ -429,7 +455,7 @@ TEST(MotionCoordinatorTest, RejectsAutonomousMotionWhileManualControlIsActive)
         command, now),
         MotionCommandResult::RejectedWrongAuthority);
     EXPECT_FALSE(motor_controller.stop_called());
-    EXPECT_FALSE(motor_controller.set_motion_called());
+    EXPECT_FALSE(motor_controller.set_wheel_velocities_called());
     EXPECT_FALSE(safety_state.hardware_fault_active());
     EXPECT_EQ(control_state.authority(), ControlAuthority::Manual);
 }
@@ -439,6 +465,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWithNaN)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -450,7 +477,8 @@ TEST(MotionCoordinatorTest, RejectsMotionWithNaN)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     constexpr MotionCommand command{
@@ -467,7 +495,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWithNaN)
     );
 
     EXPECT_FALSE(motor_controller.stop_called());
-    EXPECT_FALSE(motor_controller.set_motion_called());
+    EXPECT_FALSE(motor_controller.set_wheel_velocities_called());
     EXPECT_FALSE(safety_state.hardware_fault_active());
     EXPECT_EQ(
         control_state.authority(),
@@ -480,6 +508,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWithInfinity)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -491,7 +520,8 @@ TEST(MotionCoordinatorTest, RejectsMotionWithInfinity)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     constexpr MotionCommand command{
@@ -508,7 +538,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWithInfinity)
     );
 
     EXPECT_FALSE(motor_controller.stop_called());
-    EXPECT_FALSE(motor_controller.set_motion_called());
+    EXPECT_FALSE(motor_controller.set_wheel_velocities_called());
     EXPECT_FALSE(safety_state.hardware_fault_active());
     EXPECT_EQ(
         control_state.authority(),
@@ -521,6 +551,7 @@ TEST(MotionCoordinatorTest, AllowsStopWhileUnsafe)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -537,7 +568,8 @@ TEST(MotionCoordinatorTest, AllowsStopWhileUnsafe)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     constexpr MotionCommand command{
@@ -554,7 +586,7 @@ TEST(MotionCoordinatorTest, AllowsStopWhileUnsafe)
     );
 
     EXPECT_TRUE(motor_controller.stop_called());
-    EXPECT_FALSE(motor_controller.set_motion_called());
+    EXPECT_FALSE(motor_controller.set_wheel_velocities_called());
 
     EXPECT_TRUE(safety_state.hardware_fault_active());
 
@@ -569,6 +601,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWhileUnsafe)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -585,7 +618,8 @@ TEST(MotionCoordinatorTest, RejectsMotionWhileUnsafe)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     constexpr MotionCommand command{
@@ -602,7 +636,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWhileUnsafe)
     );
 
     EXPECT_FALSE(motor_controller.stop_called());
-    EXPECT_FALSE(motor_controller.set_motion_called());
+    EXPECT_FALSE(motor_controller.set_wheel_velocities_called());
 
     EXPECT_TRUE(safety_state.hardware_fault_active());
 
@@ -617,6 +651,7 @@ TEST(MotionCoordinatorTest, SendsValidMotionCommandToMotorController)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -628,7 +663,8 @@ TEST(MotionCoordinatorTest, SendsValidMotionCommandToMotorController)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     constexpr MotionCommand command{
@@ -645,16 +681,18 @@ TEST(MotionCoordinatorTest, SendsValidMotionCommandToMotorController)
     );
 
     EXPECT_FALSE(motor_controller.stop_called());
-    EXPECT_TRUE(motor_controller.set_motion_called());
+    EXPECT_TRUE(motor_controller.set_wheel_velocities_called());
 
-    EXPECT_DOUBLE_EQ(
-        motor_controller.last_motion().linear_velocity_mps,
-        0.5
+    EXPECT_NEAR(
+        motor_controller.last_wheel_velocities().left_mps,
+        0.36,
+        1e-12
     );
 
-    EXPECT_DOUBLE_EQ(
-        motor_controller.last_motion().angular_velocity_radps,
-        0.7
+    EXPECT_NEAR(
+        motor_controller.last_wheel_velocities().right_mps,
+        0.64,
+        1e-12
     );
 
     EXPECT_FALSE(safety_state.hardware_fault_active());
@@ -665,6 +703,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenSetMotionFails)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
 
     FakeMotorController motor_controller(
         MotorCommandResult::Success,
@@ -680,7 +719,8 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenSetMotionFails)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     constexpr MotionCommand command{
@@ -696,7 +736,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenSetMotionFails)
         MotionCommandResult::MotorCommandFailed
     );
 
-    EXPECT_TRUE(motor_controller.set_motion_called());
+    EXPECT_TRUE(motor_controller.set_wheel_velocities_called());
     EXPECT_TRUE(motor_controller.stop_called());
 
     EXPECT_TRUE(safety_state.hardware_fault_active());
@@ -713,6 +753,7 @@ TEST(MotionCoordinatorTest, AcceptedMotionArmsWatchdog)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -723,7 +764,8 @@ TEST(MotionCoordinatorTest, AcceptedMotionArmsWatchdog)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto t0 =
@@ -762,6 +804,7 @@ TEST(MotionCoordinatorTest, AcceptedStopDisarmsWatchdog)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -772,7 +815,8 @@ TEST(MotionCoordinatorTest, AcceptedStopDisarmsWatchdog)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto t0 =
@@ -827,12 +871,14 @@ TEST(MotionCoordinatorTest, TickDoesNothingBeforeTimeout)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto t0 =
@@ -858,12 +904,14 @@ TEST(MotionCoordinatorTest, TickStopsMotionOnTimeout)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto t0 =
@@ -893,12 +941,14 @@ TEST(MotionCoordinatorTest, TickReportsHardwareFaultWhenTimeoutStopFails)
     );
 
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
 
     MotionCoordinator coordinator(
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto t0 =
@@ -924,6 +974,7 @@ TEST(MotionCoordinatorTest, RejectedMotionDoesNotRefreshWatchdog)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
+    DifferentialDriveKinematics kinematics{0.4};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -934,7 +985,8 @@ TEST(MotionCoordinatorTest, RejectedMotionDoesNotRefreshWatchdog)
         control_state,
         safety_state,
         motor_controller,
-        motion_watchdog
+        motion_watchdog,
+        kinematics
     );
 
     const auto t0 =
