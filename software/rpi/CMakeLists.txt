@@ -12,6 +12,12 @@ add_library(
         src/motion_coordinator.cpp
         src/motion_watchdog.cpp
         src/differential_drive_kinematics.cpp
+        src/wheel_velocity_command_converter.cpp
+)
+target_link_libraries(
+        robot_core
+        PUBLIC
+        robot_protocol
 )
 
 target_include_directories(
@@ -25,23 +31,12 @@ add_executable(
         src/main.cpp
 )
 
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
+
 target_link_libraries(
         indoor_service_robot
         PRIVATE
         robot_core
 )
-if(BUILD_TESTING)
-    include(FetchContent)
-
-    FetchContent_Declare(
-            googletest
-            URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    )
-
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-
-    FetchContent_MakeAvailable(googletest)
-
-    add_subdirectory(tests)
-endif()

@@ -4,9 +4,17 @@
 
 #include "differential_drive_kinematics.h"
 
+namespace
+{
+    constexpr RobotGeometry TEST_GEOMETRY{
+        .track_width_mm = 400,
+        .wheel_diameter_mm = 100
+    };
+}
+
 TEST(DifferentialDriveKinematicsTest, ConvertsStraightMotionToEqualWheelVelocities)
 {
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     constexpr MotionCommand command{
         .linear_velocity_mps = 0.5,
@@ -22,7 +30,7 @@ TEST(DifferentialDriveKinematicsTest, ConvertsStraightMotionToEqualWheelVelociti
 
 TEST(DifferentialDriveKinematicsTest, ConvertsRotationInPlaceToOppositeWheelVelocities)
 {
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     constexpr MotionCommand command{
         .linear_velocity_mps = 0.0,
@@ -38,7 +46,7 @@ TEST(DifferentialDriveKinematicsTest, ConvertsRotationInPlaceToOppositeWheelVelo
 
 TEST(DifferentialDriveKinematicsTest, ConvertsCurvedMotionToDifferentWheelVelocities)
 {
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     constexpr MotionCommand command{
         .linear_velocity_mps = 0.5,
@@ -54,7 +62,7 @@ TEST(DifferentialDriveKinematicsTest, ConvertsCurvedMotionToDifferentWheelVeloci
 
 TEST(DifferentialDriveKinematicsTest, ReversesWheelDifferenceForNegativeAngularVelocity)
 {
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     constexpr MotionCommand command{
         .linear_velocity_mps = 0.5,
@@ -68,9 +76,22 @@ TEST(DifferentialDriveKinematicsTest, ReversesWheelDifferenceForNegativeAngularV
     EXPECT_NEAR(result.right_mps, 0.3, 1e-12);
 }
 
+TEST(DifferentialDriveKinematicsTest, RejectsZeroTrackWidth)
+{
+    constexpr RobotGeometry geometry{
+        .track_width_mm = 0,
+        .wheel_diameter_mm = 100
+    };
+
+    EXPECT_THROW(
+        DifferentialDriveKinematics{geometry},
+        std::invalid_argument
+    );
+}
+
 TEST(DifferentialDriveKinematicsTest, ConvertsReverseCurvedMotionCorrectly)
 {
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     constexpr MotionCommand command{
         .linear_velocity_mps = -0.5,
@@ -82,31 +103,4 @@ TEST(DifferentialDriveKinematicsTest, ConvertsReverseCurvedMotionCorrectly)
 
     EXPECT_NEAR(result.left_mps, -0.7, 1e-12);
     EXPECT_NEAR(result.right_mps, -0.3, 1e-12);
-}
-
-TEST(DifferentialDriveKinematicsTest, RejectsInvalidTrackWidth)
-{
-    EXPECT_THROW(
-        DifferentialDriveKinematics{0.0},
-        std::invalid_argument
-    );
-
-    EXPECT_THROW(
-        DifferentialDriveKinematics{-0.4},
-        std::invalid_argument
-    );
-
-    EXPECT_THROW(
-        DifferentialDriveKinematics{
-            std::numeric_limits<double>::quiet_NaN()
-        },
-        std::invalid_argument
-    );
-
-    EXPECT_THROW(
-        DifferentialDriveKinematics{
-            std::numeric_limits<double>::infinity()
-        },
-        std::invalid_argument
-    );
 }

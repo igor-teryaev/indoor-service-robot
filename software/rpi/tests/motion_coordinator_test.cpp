@@ -5,13 +5,21 @@
 #include "fake_motor_controller.h"
 #include "motion_config.h"
 
+namespace
+{
+    constexpr RobotGeometry TEST_GEOMETRY{
+        .track_width_mm = 400,
+        .wheel_diameter_mm = 100
+    };
+}
+
 TEST(MotionCoordinatorTest, StopsMotorsAndReleasesManualControl)
 {
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -53,7 +61,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenMotorStopFails)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller(
         MotorCommandResult::Failed
     );
@@ -98,7 +106,7 @@ TEST(MotionCoordinatorTest, CallsStopWhenControlAlreadyReleased)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     MotionCoordinator coordinator(
@@ -121,7 +129,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenAlreadyReleasedStopFails)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller(
         MotorCommandResult::Failed
 );
@@ -146,7 +154,7 @@ TEST(MotionCoordinatorTest, StopsMotorsAndReleasesAutonomousControl)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
@@ -189,7 +197,7 @@ TEST(MotionCoordinatorTest, RequestsManualControlFromAutonomous)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
@@ -228,7 +236,7 @@ TEST(MotionCoordinatorTest, ReportsAlreadyActiveWhenManualControlAlreadyActive)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     ASSERT_EQ(
@@ -267,7 +275,7 @@ TEST(MotionCoordinatorTest, RequestsManualControlFromNoAuthority)
     ControlState control_state;
     SafetyState safety_state;
     FakeMotorController motor_controller;
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
 
     MotionCoordinator coordinator(
@@ -301,7 +309,7 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopSuccess)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller(
         MotorCommandResult::Success);
 
@@ -329,7 +337,7 @@ TEST(MotionCoordinatorTest, ManualToAutonomousControlStopFailed)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller(
         MotorCommandResult::Failed);
 
@@ -357,7 +365,7 @@ TEST(MotionCoordinatorTest, NoneToAutonomousControl)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller;
 
     MotionCoordinator coordinator(
@@ -380,7 +388,7 @@ TEST(MotionCoordinatorTest, AutonomousToAutonomousControl)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -408,7 +416,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWhenNoAuthorityIsActive)
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
     FakeMotorController motor_controller;
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     MotionCoordinator coordinator(
         control_state,
         safety_state,
@@ -433,7 +441,7 @@ TEST(MotionCoordinatorTest, RejectsAutonomousMotionWhileManualControlIsActive)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -465,7 +473,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWithNaN)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -508,7 +516,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWithInfinity)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -551,7 +559,7 @@ TEST(MotionCoordinatorTest, AllowsStopWhileUnsafe)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -601,7 +609,7 @@ TEST(MotionCoordinatorTest, RejectsMotionWhileUnsafe)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -651,7 +659,7 @@ TEST(MotionCoordinatorTest, SendsValidMotionCommandToMotorController)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
     FakeMotorController motor_controller;
 
     ASSERT_EQ(
@@ -703,7 +711,7 @@ TEST(MotionCoordinatorTest, ReportsHardwareFaultWhenSetMotionFails)
     ControlState control_state;
     SafetyState safety_state;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     FakeMotorController motor_controller(
         MotorCommandResult::Success,
@@ -753,7 +761,7 @@ TEST(MotionCoordinatorTest, AcceptedMotionArmsWatchdog)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -804,7 +812,7 @@ TEST(MotionCoordinatorTest, AcceptedStopDisarmsWatchdog)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -871,7 +879,7 @@ TEST(MotionCoordinatorTest, TickDoesNothingBeforeTimeout)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -904,7 +912,7 @@ TEST(MotionCoordinatorTest, TickStopsMotionOnTimeout)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -941,7 +949,7 @@ TEST(MotionCoordinatorTest, TickReportsHardwareFaultWhenTimeoutStopFails)
     );
 
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -974,7 +982,7 @@ TEST(MotionCoordinatorTest, RejectedMotionDoesNotRefreshWatchdog)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     ASSERT_EQ(
         control_state.request_manual_control(),
@@ -1032,7 +1040,7 @@ TEST(MotionCoordinatorTest, RejectsFiniteMotionThatOverflowsWheelVelocities)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1081,7 +1089,7 @@ TEST(MotionCoordinatorTest, EstopStopsActiveMotionAndDisarmsWatchdog)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1135,7 +1143,7 @@ TEST(MotionCoordinatorTest, EstopStopFailureLatchesHardwareFault)
     };
 
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1187,7 +1195,7 @@ TEST(MotionCoordinatorTest, HardwareFaultStopsActiveMotionAndDisarmsWatchdog)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1241,7 +1249,7 @@ TEST(MotionCoordinatorTest, HardwareFaultStopFailureRemainsLatched)
     };
 
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1291,7 +1299,7 @@ TEST(MotionCoordinatorTest, ClearEstopStopsMotorAndPreservesHardwareFault)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1330,7 +1338,7 @@ TEST(MotionCoordinatorTest, ClearEstopStopFailureKeepsEstopAndLatchesHardwareFau
     };
 
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1364,7 +1372,7 @@ TEST(MotionCoordinatorTest, ClearHardwareFaultStopsMotorAndPreservesEstop)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1403,7 +1411,7 @@ TEST(MotionCoordinatorTest, ClearHardwareFaultStopFailureKeepsHardwareFaultActiv
     };
 
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1435,7 +1443,7 @@ TEST(MotionCoordinatorTest, SuccessfulStopAndReleaseDisarmsWatchdog)
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,
@@ -1488,7 +1496,7 @@ TEST(MotionCoordinatorTest, ManualToAutonomousDisarmsWatchdogAfterSuccessfulStop
     SafetyState safety_state;
     FakeMotorController motor_controller;
     MotionWatchdog motion_watchdog{MOTION_TIMEOUT};
-    DifferentialDriveKinematics kinematics{0.4};
+    DifferentialDriveKinematics kinematics{TEST_GEOMETRY};
 
     MotionCoordinator coordinator(
         control_state,

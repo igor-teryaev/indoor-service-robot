@@ -3,15 +3,13 @@
 #include <cmath>
 #include <stdexcept>
 
-DifferentialDriveKinematics::DifferentialDriveKinematics(
-    double track_width_m)
-    : track_width_m_(track_width_m)
+DifferentialDriveKinematics::DifferentialDriveKinematics(const RobotGeometry& geometry)
+    : track_width_m_(static_cast<double>(geometry.track_width_mm) / 1000.0)
 {
-    if (!std::isfinite(track_width_m_) ||
-        track_width_m_ <= 0.0)
+    if (geometry.track_width_mm == 0)
     {
         throw std::invalid_argument(
-            "track width must be finite and greater than zero"
+            "track width must be greater than zero"
         );
     }
 }
