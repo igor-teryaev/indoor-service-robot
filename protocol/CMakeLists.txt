@@ -1,6 +1,9 @@
 add_library(robot_protocol
+        byte_codec.c
         wheel_velocity_codec.c
 )
+
+target_compile_features(robot_protocol PUBLIC c_std_99)
 
 target_include_directories(robot_protocol
         PUBLIC
