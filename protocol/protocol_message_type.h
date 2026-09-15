@@ -1,0 +1,34 @@
+#ifndef ROBOT_PROTOCOL_PROTOCOL_MESSAGE_TYPE_H
+#define ROBOT_PROTOCOL_PROTOCOL_MESSAGE_TYPE_H
+
+#include <stdint.h>
+
+/*
+ * Message type ranges:
+ *
+ * 0x01-0x0F  link/system
+ * 0x10-0x1F  motion lifecycle
+ * 0x20-0x2F  realtime motion
+ * 0x30-0x3F  RPC
+ * 0x40+      telemetry/future
+ */
+
+typedef uint8_t ProtocolMessageType;
+
+#define PROTOCOL_MESSAGE_TYPE_INVALID          0x00U
+
+#define PROTOCOL_MESSAGE_TYPE_LINK_SYNC        0x01U
+#define PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK     0x02U
+#define PROTOCOL_MESSAGE_TYPE_HEARTBEAT        0x03U
+
+#define PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND   0x10U
+#define PROTOCOL_MESSAGE_TYPE_MOTION_ACK       0x11U
+#define PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE  0x12U
+
+#define PROTOCOL_MESSAGE_TYPE_WHEEL_VELOCITY   0x20U
+
+#define PROTOCOL_MESSAGE_TYPE_RPC_COMMAND      0x30U
+#define PROTOCOL_MESSAGE_TYPE_RPC_ACK          0x31U
+#define PROTOCOL_MESSAGE_TYPE_RPC_RESPONSE     0x32U
+
+#endif

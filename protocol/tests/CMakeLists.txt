@@ -2,6 +2,7 @@ add_executable(robot_protocol_tests
         byte_codec_test.cpp
         wheel_velocity_codec_test.cpp
         wheel_velocity_payload_codec_test.cpp
+        motion_lifecycle_command_codec_test.cpp
 )
 
 target_compile_features(

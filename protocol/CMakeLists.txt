@@ -2,6 +2,7 @@ add_library(robot_protocol
         byte_codec.c
         wheel_velocity_codec.c
         wheel_velocity_payload_codec.c
+        motion_lifecycle_command_codec.c
 )
 
 target_compile_features(robot_protocol PUBLIC c_std_99)
