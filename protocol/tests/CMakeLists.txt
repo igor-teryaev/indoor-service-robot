@@ -5,6 +5,8 @@ add_executable(robot_protocol_tests
         motion_lifecycle_command_codec_test.cpp
         motion_ack_codec_test.cpp
         motion_response_codec_test.cpp
+        link_sync_codec_test.cpp
+        heartbeat_codec_test.cpp
 )
 
 target_compile_features(

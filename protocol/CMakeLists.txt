@@ -5,6 +5,8 @@ add_library(robot_protocol
         motion_lifecycle_command_codec.c
         motion_ack_codec.c
         motion_response_codec.c
+        link_sync_codec.c
+        heartbeat_codec.c
 )
 
 target_compile_features(robot_protocol PUBLIC c_std_99)
