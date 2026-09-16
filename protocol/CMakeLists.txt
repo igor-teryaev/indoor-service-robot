@@ -10,6 +10,7 @@ add_library(robot_protocol
         crc16_ccitt_false.c
         protocol_frame_encoder.c
         protocol_frame_decoder.c
+        protocol_ingress_router.c
 )
 
 target_compile_features(robot_protocol PUBLIC c_std_99)

@@ -10,6 +10,7 @@ add_executable(robot_protocol_tests
         crc16_ccitt_false_test.cpp
         protocol_frame_encoder_test.cpp
         protocol_frame_decoder_test.cpp
+        protocol_ingress_router_test.cpp
 )
 
 target_compile_features(
