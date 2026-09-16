@@ -46,6 +46,17 @@ void protocol_frame_decoder_init(
 void protocol_frame_decoder_reset(
     ProtocolFrameDecoder* decoder);
 
+/*
+ * Feeds one byte into the streaming frame decoder.
+ *
+ * On successful frame completion, returns true and sets *frame
+ * to an internal ProtocolFrame owned by the decoder.
+ *
+ * The returned frame pointer is valid only until the next call
+ * to protocol_frame_decoder_feed_byte().
+ * The caller must process or copy the frame before feeding
+ * additional bytes.
+ */
 bool protocol_frame_decoder_feed_byte(
     ProtocolFrameDecoder* decoder,
     uint8_t byte,

@@ -17,28 +17,6 @@ static void protocol_frame_decoder_update_crc(
         );
 }
 
-static void protocol_frame_decoder_reset_search(
-    ProtocolFrameDecoder *decoder,
-    uint8_t current_byte
-)
-{
-    decoder->payload_index = 0U;
-    decoder->received_crc = 0U;
-    decoder->calculated_crc =
-        CRC16_CCITT_FALSE_INITIAL;
-
-    if (current_byte == PROTOCOL_FRAME_MAGIC_0)
-    {
-        decoder->state =
-            PROTOCOL_DECODER_WAIT_MAGIC_1;
-    }
-    else
-    {
-        decoder->state =
-            PROTOCOL_DECODER_WAIT_MAGIC_0;
-    }
-}
-
 static void protocol_frame_decoder_begin_frame(
     ProtocolFrameDecoder *decoder
 )
@@ -54,6 +32,33 @@ static void protocol_frame_decoder_begin_frame(
 
     decoder->state =
         PROTOCOL_DECODER_READ_VERSION;
+}
+
+static void protocol_frame_decoder_reset_search(
+    ProtocolFrameDecoder *decoder,
+    uint8_t previous_byte,
+    uint8_t current_byte)
+{
+    decoder->payload_index = 0U;
+    decoder->received_crc = 0U;
+    decoder->calculated_crc =
+        CRC16_CCITT_FALSE_INITIAL;
+
+    if ((previous_byte == PROTOCOL_FRAME_MAGIC_0) &&
+        (current_byte == PROTOCOL_FRAME_MAGIC_1))
+    {
+        protocol_frame_decoder_begin_frame(decoder);
+    }
+    else if (current_byte == PROTOCOL_FRAME_MAGIC_0)
+    {
+        decoder->state =
+            PROTOCOL_DECODER_WAIT_MAGIC_1;
+    }
+    else
+    {
+        decoder->state =
+            PROTOCOL_DECODER_WAIT_MAGIC_0;
+    }
 }
 
 void protocol_frame_decoder_init(
@@ -140,6 +145,7 @@ bool protocol_frame_decoder_feed_byte(
 
                 protocol_frame_decoder_reset_search(
                     decoder,
+                    PROTOCOL_FRAME_MAGIC_1,
                     byte
                 );
                 break;
@@ -216,8 +222,10 @@ bool protocol_frame_decoder_feed_byte(
             {
                 decoder->format_error_count++;
 
+                const uint8_t previous_byte = (uint8_t)(decoder->frame.payload_length >> 8U);
                 protocol_frame_decoder_reset_search(
                     decoder,
+                    previous_byte,
                     byte
                 );
             }
@@ -270,8 +278,10 @@ bool protocol_frame_decoder_feed_byte(
             {
                 decoder->crc_error_count++;
 
+                const uint8_t previous_byte = (uint8_t)(decoder->received_crc >> 8U);
                 protocol_frame_decoder_reset_search(
                     decoder,
+                    previous_byte,
                     byte
                 );
                 break;

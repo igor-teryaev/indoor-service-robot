@@ -420,3 +420,93 @@ TEST(ProtocolFrameDecoderTest, DecodesStructurallyValidZeroLengthPayload)
     EXPECT_EQ(decoder.valid_frame_count, 1U);
     EXPECT_EQ(decoder.crc_error_count, 0U);
 }
+
+TEST(ProtocolFrameDecoderTest, RecoversWhenNextFrameMagicWasConsumedAsCrc)
+{
+    ProtocolFrameDecoder decoder{};
+    const ProtocolFrame* frame = nullptr;
+    uint32_t completed = 0U;
+
+    protocol_frame_decoder_init(&decoder);
+
+    /*
+     * Feed a complete-looking frame except for its two CRC bytes.
+     * Decoder will therefore interpret the first two bytes of the
+     * following valid frame (A5 5A) as the missing CRC.
+     */
+    for (size_t i = 0U;
+         i < KNOWN_FRAME.size() - PROTOCOL_FRAME_CRC_SIZE;
+         ++i)
+    {
+        EXPECT_FALSE(
+            protocol_frame_decoder_feed_byte(
+                &decoder,
+                KNOWN_FRAME[i],
+                &frame
+            )
+        );
+    }
+
+    for (const uint8_t byte : KNOWN_FRAME)
+    {
+        if (protocol_frame_decoder_feed_byte(
+                &decoder,
+                byte,
+                &frame))
+        {
+            expect_known_frame(frame);
+            ++completed;
+        }
+    }
+
+    EXPECT_EQ(completed, 1U);
+    EXPECT_EQ(decoder.valid_frame_count, 1U);
+    EXPECT_EQ(decoder.crc_error_count, 1U);
+    EXPECT_EQ(decoder.format_error_count, 0U);
+}
+
+TEST(ProtocolFrameDecoderTest, RecoversWhenNextFrameMagicWasConsumedAsLength)
+{
+    ProtocolFrameDecoder decoder{};
+    const ProtocolFrame* frame = nullptr;
+    uint32_t completed = 0U;
+
+    protocol_frame_decoder_init(&decoder);
+
+    /*
+     * Stop the first candidate immediately before payload_length.
+     *
+     * The next valid frame begins with A5 5A, so without suffix
+     * resynchronization those bytes would be interpreted as
+     * payload_length = 0xA55A and the valid frame would be lost.
+     */
+    for (size_t i = 0U;
+         i < PROTOCOL_FRAME_PAYLOAD_LENGTH_OFFSET;
+         ++i)
+    {
+        EXPECT_FALSE(
+            protocol_frame_decoder_feed_byte(
+                &decoder,
+                KNOWN_FRAME[i],
+                &frame
+            )
+        );
+    }
+
+    for (const uint8_t byte : KNOWN_FRAME)
+    {
+        if (protocol_frame_decoder_feed_byte(
+                &decoder,
+                byte,
+                &frame))
+        {
+            expect_known_frame(frame);
+            ++completed;
+        }
+    }
+
+    EXPECT_EQ(completed, 1U);
+    EXPECT_EQ(decoder.valid_frame_count, 1U);
+    EXPECT_EQ(decoder.crc_error_count, 0U);
+    EXPECT_EQ(decoder.format_error_count, 1U);
+}
