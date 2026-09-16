@@ -11,6 +11,9 @@ add_library(robot_protocol
         protocol_frame_encoder.c
         protocol_frame_decoder.c
         protocol_ingress_router.c
+        motion_transaction.c
+        motion_sequence.c
+        motion_reliable_receiver.c
 )
 
 target_compile_features(robot_protocol PUBLIC c_std_99)

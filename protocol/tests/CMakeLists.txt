@@ -11,6 +11,9 @@ add_executable(robot_protocol_tests
         protocol_frame_encoder_test.cpp
         protocol_frame_decoder_test.cpp
         protocol_ingress_router_test.cpp
+        motion_transaction_test.cpp
+        motion_sequence_test.cpp
+        motion_reliable_receiver_test.cpp
 )
 
 target_compile_features(
