@@ -7,6 +7,9 @@ add_executable(robot_protocol_tests
         motion_response_codec_test.cpp
         link_sync_codec_test.cpp
         heartbeat_codec_test.cpp
+        crc16_ccitt_false_test.cpp
+        protocol_frame_encoder_test.cpp
+        protocol_frame_decoder_test.cpp
 )
 
 target_compile_features(

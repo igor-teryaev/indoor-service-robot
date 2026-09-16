@@ -7,6 +7,9 @@ add_library(robot_protocol
         motion_response_codec.c
         link_sync_codec.c
         heartbeat_codec.c
+        crc16_ccitt_false.c
+        protocol_frame_encoder.c
+        protocol_frame_decoder.c
 )
 
 target_compile_features(robot_protocol PUBLIC c_std_99)
