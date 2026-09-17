@@ -14,6 +14,8 @@ add_library(robot_protocol
         motion_transaction.c
         motion_sequence.c
         motion_reliable_receiver.c
+        motion_lifecycle_coordinator.c
+        motion_lifecycle_action.c
 )
 
 target_compile_features(robot_protocol PUBLIC c_std_99)

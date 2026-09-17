@@ -1,3 +1,6 @@
+#ifndef ROBOT_PROTOCOL_MOTION_TRANSACTION_H
+#define ROBOT_PROTOCOL_MOTION_TRANSACTION_H
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -20,4 +23,6 @@ bool motion_transaction_equal(
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif

@@ -14,6 +14,7 @@ add_executable(robot_protocol_tests
         motion_transaction_test.cpp
         motion_sequence_test.cpp
         motion_reliable_receiver_test.cpp
+        motion_lifecycle_coordinator_test.cpp
 )
 
 target_compile_features(
