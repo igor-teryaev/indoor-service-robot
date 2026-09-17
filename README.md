@@ -1,55 +1,82 @@
 # Indoor Service Robot
 
-Autonomous indoor service robot with STM32-based motion control and Raspberry Pi vision.
+Indoor mobile service robot built around a Raspberry Pi and STM32.
+
+The first target use case is locating and retrieving slippers inside an apartment.
 
 ## Goal
 
-Build a mobile indoor robot capable of autonomous navigation, visual object detection, and interaction with household objects.
+Build a robot capable of:
 
-The first target use case is locating and retrieving slippers.
-
-## Current status
-
-The project is currently in the control-core development stage.
-
-The Raspberry Pi-side C++ control architecture is implemented and covered by
-host-side tests. It currently includes control-authority arbitration, safety
-state handling, coordinated stopping and recovery, motion-command timeout
-handling, differential-drive kinematics, and the wheel-level motor interface.
-
-STM32 motor firmware, ELRS integration, Raspberry Pi vision, autonomous
-navigation, and the Pi-to-STM32 communication protocol are planned integration
-stages and are not yet implemented in this repository.
+- indoor navigation;
+- visual object detection;
+- manual operator control;
+- autonomous movement;
+- interaction with household objects.
 
 ## Architecture
 
-The system is split into two main controllers:
+The system is split between two controllers:
 
-- Raspberry Pi — computer vision, high-level navigation, autonomy, Wi-Fi communication, and the main C++ application.
-- STM32F446RE — motor control, wheel encoders, motion safety, low-level sensors, and manual ELRS control.
+- **Raspberry Pi** — computer vision, navigation, autonomous behavior, manual/autonomous control arbitration, and high-level motion commands.
+- **STM32F446RE** — deterministic motor control, wheel encoders, low-level motion safety, and hardware-facing sensors.
 
-Manual control is provided through a RadioMaster Pocket using ExpressLRS.
+Both manual and autonomous control pass through the Raspberry Pi:
 
-## Control priority
+```text
+Manual control / ELRS ─┐
+                       ├──> Raspberry Pi
+Autonomous control ────┘        │
+                                │ UART
+                                ▼
+                              STM32
+                                │
+                         motors / encoders
+```
 
-1. E-STOP and hardware faults
-2. Manual ELRS operator control
-3. Raspberry Pi autonomous control
+The STM32 does not need to know whether a motion command originated from the operator or autonomous software.
+
+Manual control has priority over autonomous control. Physical safety conditions such as E-STOP and hardware faults have priority over both.
+
+## Current status
+
+The project currently has a host-tested control and communication core.
+
+Implemented:
+
+- Raspberry Pi-side control arbitration and differential-drive motion logic;
+- shared C99 UART protocol;
+- CRC16/CCITT-FALSE framing and streaming frame decoder;
+- link synchronization and heartbeat messages;
+- wheel-velocity protocol;
+- reliable motion lifecycle commands with ACK and terminal responses;
+- motion session lifecycle and retry handling;
+- protection against stale asynchronous operation completions;
+- wire-to-lifecycle and lifecycle-to-frame adapters.
+
+The current host test suite passes **192/192 tests**.
+
+STM32 motor firmware, live Raspberry Pi ↔ STM32 transport, encoder/PID control, ELRS input, computer vision, navigation, and real-hardware validation are still in progress.
+
+Host tests validate software behavior only. Physical motor stopping and hardware communication have not yet been validated.
+
+For detailed design information see:
+
+- [System architecture](docs/architecture.md)
+- [Architecture backlog](docs/architecture_backlog.md)
 
 ## Safety principles
 
 - Motion commands have a limited validity period.
-- Loss of the active control source causes a safe stop.
-- Restoring communication does not automatically resume an old motion command.
-- Fault recovery returns the robot to an idle state.
-- Safety recovery requires a confirmed motor stop before the corresponding
-  safety condition can be cleared.
-- Recovery never automatically resumes a previous motion command.
+- Loss of valid motion control causes a safe stop.
+- Restoring communication does not automatically resume old motion.
 - A new valid motion command is required before movement resumes.
+- Lifecycle ACK means that a command was accepted for processing, not that physical execution has completed.
+- Successful stop completion must mean that the motors are physically confirmed stopped.
 
 ## Hardware
 
-Currently available or ordered:
+Current target hardware:
 
 - STM32 NUCLEO-F446RE
 - Raspberry Pi
@@ -58,32 +85,29 @@ Currently available or ordered:
 - 2 × DFRobot FIT0403 12 V geared motors with encoders
 - DFRobot DRI0041 dual-channel motor driver
 
-See `docs/hardware.md` for hardware details.
+See [Hardware](docs/hardware.md) for details.
 
 ## Repository layout
 
 - `firmware/stm32` — STM32 firmware
-- `software/rpi` — Raspberry Pi application
-- `protocol` — communication protocol definitions
-- `software/rpi/tests` — Raspberry Pi control-core host tests
-- `tests` — future cross-component and integration tests
+- `software/rpi` — Raspberry Pi C++ software
+- `protocol` — shared C99 communication protocol
+- `tests` — cross-component integration tests
 - `tools` — development and diagnostic utilities
 - `docs` — architecture and hardware documentation
 
-## Raspberry Pi host build and tests
+## Build and test
 
-The Raspberry Pi control core is currently developed and tested on the host
-using C++20, CMake, Ninja, and GoogleTest.
+Requirements:
 
-Configure:
+- C99 / C++20 toolchain
+- CMake 3.24+
+- Ninja
+
+Configure and build:
 
 ```powershell
 cmake -S . -B build -G Ninja
-```
-
-Build:
-
-```powershell
 cmake --build build
 ```
 
@@ -93,19 +117,9 @@ Run tests:
 ctest --test-dir build --output-on-failure
 ```
 
-To build without tests:
+Build without tests:
 
 ```powershell
 cmake -S . -B build-no-tests -G Ninja -DBUILD_TESTING=OFF
 cmake --build build-no-tests
 ```
-
-Current implemented host-side control components include:
-
-- control authority arbitration;
-- independent E-stop and hardware-fault state;
-- coordinated safety stopping and recovery;
-- motion watchdog;
-- chassis-level `MotionCommand`;
-- differential-drive kinematics;
-- wheel-level `IMotorController` boundary.
