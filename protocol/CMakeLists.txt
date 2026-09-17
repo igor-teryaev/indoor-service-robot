@@ -16,6 +16,8 @@ add_library(robot_protocol
         motion_reliable_receiver.c
         motion_lifecycle_coordinator.c
         motion_lifecycle_action.c
+        motion_command_handler.c
+        motion_command_frames.c
 )
 
 target_compile_features(robot_protocol PUBLIC c_std_99)
