@@ -1,5 +1,6 @@
 #include "protocol_ingress_router.h"
 
+#include <stddef.h>
 #include "heartbeat_codec.h"
 #include "link_sync_codec.h"
 #include "motion_ack_codec.h"
