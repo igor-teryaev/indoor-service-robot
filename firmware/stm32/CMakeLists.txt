@@ -24,3 +24,5 @@ add_subdirectory(
         ${CMAKE_CURRENT_LIST_DIR}/../../protocol
         ${CMAKE_CURRENT_BINARY_DIR}/protocol
 )
+
+add_subdirectory(Core)
