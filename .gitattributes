@@ -1,0 +1,8 @@
+# Preserve STM32 vendor and generated files as emitted by ST tools.
+firmware/stm32/Platform/NucleoF446RE/Drivers/** -whitespace
+firmware/stm32/Platform/NucleoF446RE/Core/Startup/** -whitespace
+firmware/stm32/Platform/NucleoF446RE/Core/Src/system_stm32f4xx.c -whitespace
+firmware/stm32/Platform/NucleoF446RE/Core/Inc/gpio.h -whitespace
+firmware/stm32/Platform/NucleoF446RE/Core/Inc/tim.h -whitespace
+firmware/stm32/Platform/NucleoF446RE/Core/Src/tim.c -whitespace
+firmware/stm32/Platform/NucleoF446RE/.mxproject -whitespace

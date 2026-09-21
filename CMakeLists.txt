@@ -22,5 +22,9 @@ add_subdirectory(protocol)
 add_subdirectory(software/rpi)
 if(BUILD_TESTING)
     add_subdirectory(firmware/stm32/Core)
+    add_subdirectory(
+            firmware/stm32/Platform/NucleoF446RE
+            EXCLUDE_FROM_ALL
+    )
     add_subdirectory(tests)
 endif()

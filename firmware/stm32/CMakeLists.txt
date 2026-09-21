@@ -26,3 +26,4 @@ add_subdirectory(
 )
 
 add_subdirectory(Core)
+add_subdirectory(Platform/NucleoF446RE)
