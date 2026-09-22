@@ -52,13 +52,15 @@ Implemented:
 - reliable motion lifecycle commands with ACK and terminal responses;
 - motion session lifecycle and retry handling;
 - protection against stale asynchronous operation completions;
-- wire-to-lifecycle and lifecycle-to-frame adapters.
+- wire-to-lifecycle and lifecycle-to-frame adapters;
+- STM32 TIM8/DRV8833 motor control;
+- STM32 motion-command watchdog with fail-safe braking.
 
-The current host test suite passes **192/192 tests**.
+The current host test suite passes **223/223 tests**.
 
-STM32 motor firmware, live Raspberry Pi ↔ STM32 transport, encoder/PID control, ELRS input, computer vision, navigation, and real-hardware validation are still in progress.
+DRV8833 PWM control, forward/reverse motion, and watchdog braking were validated on the ARC101 test platform.
 
-Host tests validate software behavior only. Physical motor stopping and hardware communication have not yet been validated.
+Live Raspberry Pi ↔ STM32 transport, encoder/PID control, ELRS input, computer vision, and navigation remain in progress.
 
 For detailed design information see:
 
@@ -79,11 +81,10 @@ For detailed design information see:
 Current target hardware:
 
 - STM32 NUCLEO-F446RE
-- Raspberry Pi
-- Raspberry Pi camera
+- ARC101 platform with DRV8833 for bring-up
+- Rowenta RR6825WH drive base as the target chassis
+- Raspberry Pi with camera
 - RadioMaster Pocket ELRS
-- 2 × DFRobot FIT0403 12 V geared motors with encoders
-- DFRobot DRI0041 dual-channel motor driver
 
 See [Hardware](docs/hardware.md) for details.
 
