@@ -23,7 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "motor_driver.h"
+#include "motion_command_guard.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,7 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define MOTION_COMMAND_TIMEOUT_MS 250U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -90,7 +90,8 @@ int main(void)
   MX_TIM8_Init();
   /* USER CODE BEGIN 2 */
 
-  if (!motor_driver_init())
+  if (!motion_command_guard_init(
+          MOTION_COMMAND_TIMEOUT_MS))
   {
     Error_Handler();
   }
@@ -101,6 +102,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    (void)motion_command_guard_update(HAL_GetTick());
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

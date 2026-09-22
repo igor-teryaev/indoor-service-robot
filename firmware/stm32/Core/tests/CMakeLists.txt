@@ -6,9 +6,19 @@ add_executable(motor_driver_drv8833_tests
         motor_driver_drv8833_test.cpp
 )
 
+add_executable(motion_watchdog_tests
+        motion_watchdog_test.cpp
+)
+
+add_executable(motion_command_guard_tests
+        motion_command_guard_test.cpp
+)
+
 set(STM32_CORE_TEST_TARGETS
         stm32_core_tests
         motor_driver_drv8833_tests
+        motion_watchdog_tests
+        motion_command_guard_tests
 )
 
 include(GoogleTest)
