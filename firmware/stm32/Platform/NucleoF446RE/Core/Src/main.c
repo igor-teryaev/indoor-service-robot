@@ -18,12 +18,17 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dma.h"
 #include "tim.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "motion_command_guard.h"
+#include "uart_protocol_receiver.h"
+#include "uart_rx_port.h"
+#include "uart_link_manager.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -34,6 +39,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define MOTION_COMMAND_TIMEOUT_MS 250U
+#define LINK_HEARTBEAT_TIMEOUT_MS 1000U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -44,7 +50,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+static UartRxQueue uart_rx_queue;
+static UartProtocolReceiver uart_protocol_receiver;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,11 +94,31 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM8_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
   if (!motion_command_guard_init(
           MOTION_COMMAND_TIMEOUT_MS))
+  {
+    Error_Handler();
+  }
+
+  if (!uart_link_manager_init(
+        LINK_HEARTBEAT_TIMEOUT_MS))
+  {
+    Error_Handler();
+  }
+
+  if (!uart_protocol_receiver_init(
+        &uart_protocol_receiver,
+        &uart_rx_queue))
+  {
+    Error_Handler();
+  }
+
+  if (!uart_rx_port_init(&uart_rx_queue))
   {
     Error_Handler();
   }
@@ -102,7 +129,36 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    (void)motion_command_guard_update(HAL_GetTick());
+    const uint32_t now_ms = HAL_GetTick();
+
+    (void)motion_command_guard_update(now_ms);
+
+    const ProtocolFrame *frame = NULL;
+
+    const UartProtocolReceiverResult receive_result =
+        uart_protocol_receiver_poll(
+            &uart_protocol_receiver,
+            &frame);
+
+    if ((receive_result == UART_PROTOCOL_RECEIVER_RESULT_OVERFLOW) ||
+        (receive_result == UART_PROTOCOL_RECEIVER_RESULT_INVALID_ARGUMENT))
+    {
+      (void)uart_link_manager_init(LINK_HEARTBEAT_TIMEOUT_MS);
+      (void)motion_command_guard_stop();
+    }
+    else if (receive_result == UART_PROTOCOL_RECEIVER_RESULT_FRAME)
+    {
+      const UartLinkManagerResult link_result = uart_link_manager_handle(frame, now_ms);
+
+      if (link_result ==
+          UART_LINK_MANAGER_RESULT_INVALID_ARGUMENT)
+      {
+        (void)uart_link_manager_init(LINK_HEARTBEAT_TIMEOUT_MS);
+        (void)motion_command_guard_stop();
+      }
+    }
+    (void)uart_link_manager_update(now_ms);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

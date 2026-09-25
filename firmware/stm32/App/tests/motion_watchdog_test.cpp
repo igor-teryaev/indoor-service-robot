@@ -5,7 +5,7 @@ extern "C"
 #include "motion_watchdog.h"
 }
 
-TEST(MotionWatchdogTest, RejectsZeroTimeoutAndRemainsInactive)
+TEST(MotionWatchdogFirmwareTest, RejectsZeroTimeoutAndRemainsInactive)
 {
     EXPECT_FALSE(motion_watchdog_init(0U));
     EXPECT_FALSE(motion_watchdog_refresh(100U));
@@ -13,7 +13,7 @@ TEST(MotionWatchdogTest, RejectsZeroTimeoutAndRemainsInactive)
     EXPECT_FALSE(motion_watchdog_expired(1000U));
 }
 
-TEST(MotionWatchdogTest, RefreshArmsInitializedWatchdog)
+TEST(MotionWatchdogFirmwareTest, RefreshArmsInitializedWatchdog)
 {
     ASSERT_TRUE(motion_watchdog_init(250U));
 
@@ -26,7 +26,7 @@ TEST(MotionWatchdogTest, RefreshArmsInitializedWatchdog)
     EXPECT_FALSE(motion_watchdog_expired(1000U));
 }
 
-TEST(MotionWatchdogTest, ExpiresAtTimeoutBoundary)
+TEST(MotionWatchdogFirmwareTest, ExpiresAtTimeoutBoundary)
 {
     ASSERT_TRUE(motion_watchdog_init(250U));
     ASSERT_TRUE(motion_watchdog_refresh(1000U));
@@ -36,7 +36,7 @@ TEST(MotionWatchdogTest, ExpiresAtTimeoutBoundary)
     EXPECT_TRUE(motion_watchdog_expired(1251U));
 }
 
-TEST(MotionWatchdogTest, RefreshRestartsTimeout)
+TEST(MotionWatchdogFirmwareTest, RefreshRestartsTimeout)
 {
     ASSERT_TRUE(motion_watchdog_init(250U));
     ASSERT_TRUE(motion_watchdog_refresh(1000U));
@@ -49,7 +49,7 @@ TEST(MotionWatchdogTest, RefreshRestartsTimeout)
     EXPECT_TRUE(motion_watchdog_expired(1450U));
 }
 
-TEST(MotionWatchdogTest, DisarmSuppressesExpiration)
+TEST(MotionWatchdogFirmwareTest, DisarmSuppressesExpiration)
 {
     ASSERT_TRUE(motion_watchdog_init(250U));
     ASSERT_TRUE(motion_watchdog_refresh(1000U));
@@ -61,7 +61,7 @@ TEST(MotionWatchdogTest, DisarmSuppressesExpiration)
     EXPECT_FALSE(motion_watchdog_expired(5000U));
 }
 
-TEST(MotionWatchdogTest, InvalidReinitializationClearsActiveState)
+TEST(MotionWatchdogFirmwareTest, InvalidReinitializationClearsActiveState)
 {
     ASSERT_TRUE(motion_watchdog_init(250U));
     ASSERT_TRUE(motion_watchdog_refresh(1000U));
@@ -74,7 +74,7 @@ TEST(MotionWatchdogTest, InvalidReinitializationClearsActiveState)
     EXPECT_FALSE(motion_watchdog_expired(5000U));
 }
 
-TEST(MotionWatchdogTest, ReinitializationDisarmsAndReplacesTimeout)
+TEST(MotionWatchdogFirmwareTest, ReinitializationDisarmsAndReplacesTimeout)
 {
     ASSERT_TRUE(motion_watchdog_init(250U));
     ASSERT_TRUE(motion_watchdog_refresh(1000U));
@@ -89,7 +89,7 @@ TEST(MotionWatchdogTest, ReinitializationDisarmsAndReplacesTimeout)
     EXPECT_TRUE(motion_watchdog_expired(2100U));
 }
 
-TEST(MotionWatchdogTest, ExpiresAcrossTickCounterWraparound)
+TEST(MotionWatchdogFirmwareTest, ExpiresAcrossTickCounterWraparound)
 {
     constexpr uint32_t timeout_ms = 250U;
     constexpr uint32_t refreshed_at_ms = UINT32_MAX - 99U;

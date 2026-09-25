@@ -1,0 +1,60 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "host-debug",
+      "displayName": "Host Debug",
+      "description": "Desktop build with unit and integration tests",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/host-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "stm32-debug",
+      "displayName": "STM32 Debug",
+      "description": "ARM firmware build for Nucleo-F446RE",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/stm32-debug",
+      "toolchainFile": "${sourceDir}/firmware/stm32/cmake/arm-none-eabi-gcc.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTING": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "host-debug",
+      "displayName": "Build Host Debug",
+      "configurePreset": "host-debug"
+    },
+    {
+      "name": "stm32-debug",
+      "displayName": "Build STM32 Debug",
+      "configurePreset": "stm32-debug",
+      "targets": [
+        "NucleoF446RE"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "host-debug",
+      "displayName": "Test Host Debug",
+      "configurePreset": "host-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
