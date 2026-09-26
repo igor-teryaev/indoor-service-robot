@@ -29,6 +29,8 @@
 #include "uart_protocol_receiver.h"
 #include "uart_rx_port.h"
 #include "uart_link_manager.h"
+#include "stm32_motion_protocol_manager.h"
+#include "protocol_message_type.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,6 +42,9 @@
 /* USER CODE BEGIN PD */
 #define MOTION_COMMAND_TIMEOUT_MS 250U
 #define LINK_HEARTBEAT_TIMEOUT_MS 1000U
+/* ARC101 open-loop calibration; this is not closed-loop velocity control. */
+#define ARC101_OPEN_LOOP_FULL_SCALE_MM_S 400U
+#define ARC101_MINIMUM_START_COMMAND 800U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,6 +57,7 @@
 /* USER CODE BEGIN PV */
 static UartRxQueue uart_rx_queue;
 static UartProtocolReceiver uart_protocol_receiver;
+static Stm32MotionProtocolManager motion_protocol_manager;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,6 +68,16 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void reset_link_and_stop_motion(void)
+{
+  (void)uart_link_manager_init(
+      LINK_HEARTBEAT_TIMEOUT_MS);
+
+  stm32_motion_protocol_manager_reset(
+      &motion_protocol_manager);
+
+  (void)motion_command_guard_stop();
+}
 
 /* USER CODE END 0 */
 
@@ -105,6 +121,22 @@ int main(void)
     Error_Handler();
   }
 
+  const WheelVelocityFeedforwardConfig feedforward_config =
+  {
+    .max_velocity_mm_s =
+        ARC101_OPEN_LOOP_FULL_SCALE_MM_S,
+
+    .minimum_start_command =
+        ARC101_MINIMUM_START_COMMAND
+  };
+
+  if (!stm32_motion_protocol_manager_init(
+          &motion_protocol_manager,
+          &feedforward_config))
+  {
+    Error_Handler();
+  }
+
   if (!uart_link_manager_init(
         LINK_HEARTBEAT_TIMEOUT_MS))
   {
@@ -131,7 +163,18 @@ int main(void)
   {
     const uint32_t now_ms = HAL_GetTick();
 
-    (void)motion_command_guard_update(now_ms);
+    const Stm32MotionProtocolManagerResult motion_update =
+        stm32_motion_protocol_manager_update(
+            &motion_protocol_manager,
+            now_ms);
+
+    if ((motion_update ==
+         STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_FAILED) ||
+        (motion_update ==
+         STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED))
+    {
+      reset_link_and_stop_motion();
+    }
 
     const ProtocolFrame *frame = NULL;
 
@@ -143,21 +186,72 @@ int main(void)
     if ((receive_result == UART_PROTOCOL_RECEIVER_RESULT_OVERFLOW) ||
         (receive_result == UART_PROTOCOL_RECEIVER_RESULT_INVALID_ARGUMENT))
     {
-      (void)uart_link_manager_init(LINK_HEARTBEAT_TIMEOUT_MS);
-      (void)motion_command_guard_stop();
+      reset_link_and_stop_motion();
     }
     else if (receive_result == UART_PROTOCOL_RECEIVER_RESULT_FRAME)
     {
-      const UartLinkManagerResult link_result = uart_link_manager_handle(frame, now_ms);
-
-      if (link_result ==
-          UART_LINK_MANAGER_RESULT_INVALID_ARGUMENT)
+      switch (frame->message_type)
       {
-        (void)uart_link_manager_init(LINK_HEARTBEAT_TIMEOUT_MS);
-        (void)motion_command_guard_stop();
+      case PROTOCOL_MESSAGE_TYPE_LINK_SYNC:
+      case PROTOCOL_MESSAGE_TYPE_HEARTBEAT:
+        {
+          const UartLinkManagerResult link_result =
+              uart_link_manager_handle(
+                  frame,
+                  now_ms);
+
+          /*
+           * A successful LINK_SYNC starts a new link epoch.
+           *
+           * Any loss or rejection of synchronization also
+           * invalidates the current motion session.
+           */
+          if ((link_result ==
+               UART_LINK_MANAGER_RESULT_SYNCHRONIZED) ||
+              !uart_link_manager_is_synchronized())
+          {
+            stm32_motion_protocol_manager_reset(
+                &motion_protocol_manager);
+          }
+
+          break;
+        }
+
+      case PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND:
+      case PROTOCOL_MESSAGE_TYPE_WHEEL_VELOCITY:
+        {
+          const Stm32MotionProtocolManagerResult motion_result =
+              stm32_motion_protocol_manager_handle(
+                  &motion_protocol_manager,
+                  frame,
+                  uart_link_manager_is_synchronized(),
+                  now_ms);
+
+          if ((motion_result ==
+               STM32_MOTION_PROTOCOL_MANAGER_RESULT_APPLY_FAILED) ||
+              (motion_result ==
+               STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_FAILED) ||
+              (motion_result ==
+               STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED))
+          {
+            reset_link_and_stop_motion();
+          }
+
+          break;
+        }
+
+      default:
+        break;
       }
     }
-    (void)uart_link_manager_update(now_ms);
+
+    const UartLinkManagerUpdate link_update = uart_link_manager_update(now_ms);
+
+    if ((link_update == UART_LINK_MANAGER_UPDATE_LINK_LOST) ||
+        (link_update == UART_LINK_MANAGER_UPDATE_STOP_FAILED))
+    {
+      stm32_motion_protocol_manager_reset(&motion_protocol_manager);
+    }
 
     /* USER CODE END WHILE */
 

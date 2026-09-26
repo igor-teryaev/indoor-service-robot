@@ -7,6 +7,8 @@ add_library(stm32_app STATIC
         Src/uart_protocol_receiver.c
         Src/uart_protocol_transmitter.c
         Src/uart_link_manager.c
+        Src/stm32_motion_protocol_manager.c
+        Src/wheel_velocity_feedforward.c
 )
 
 target_compile_features(stm32_app PUBLIC c_std_99)

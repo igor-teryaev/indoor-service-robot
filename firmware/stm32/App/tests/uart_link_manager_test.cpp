@@ -9,6 +9,7 @@ extern "C"
 #include "uart_protocol_transmitter.h"
 #include "link_sync_codec.h"
 #include "heartbeat_codec.h"
+#include "protocol_ingress_router.h"
 }
 
 namespace
@@ -729,4 +730,43 @@ TEST_F(UartLinkManagerTest, HeartbeatTransmitFailureClearsLinkAndStopsMotion)
     EXPECT_FALSE(uart_link_manager_is_synchronized());
     EXPECT_EQ(transmit_call_count, 1U);
     EXPECT_EQ(stop_call_count, 1U);
+}
+
+TEST_F(
+    UartLinkManagerTest,
+    MalformedHeartbeatStillBelongsToLinkManager)
+{
+    constexpr HeartbeatPayload payload =
+    {
+        .link_state = LINK_STATE_SYNCHRONIZED,
+        .uptime_ms = 100U
+    };
+
+    ProtocolFrame frame =
+    {
+        .message_type = PROTOCOL_MESSAGE_TYPE_HEARTBEAT,
+        .sequence = 130U,
+        .payload_length = HEARTBEAT_WIRE_SIZE
+    };
+
+    heartbeat_encode(
+        &payload,
+        frame.payload);
+
+    /*
+     * Corrupt only the payload length.
+     *
+     * The frame is still semantically a HEARTBEAT message
+     * and must therefore be dispatched to uart_link_manager.
+     */
+    frame.payload_length =
+        HEARTBEAT_WIRE_SIZE - 1U;
+
+    EXPECT_EQ(
+        frame.message_type,
+        PROTOCOL_MESSAGE_TYPE_HEARTBEAT);
+
+    EXPECT_EQ(
+        protocol_ingress_route(&frame),
+        PROTOCOL_INGRESS_ROUTE_INVALID_PAYLOAD_LENGTH);
 }
