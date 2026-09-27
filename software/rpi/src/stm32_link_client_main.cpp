@@ -6,7 +6,6 @@
 #include <chrono>
 #include "linux_serial_port.h"
 #include "stm32_link_session.h"
-#include <thread>
 #include <optional>
 
 extern "C"
@@ -234,189 +233,190 @@ int main(
         << "STM32 link synchronized"
         << std::endl;
 
-    std::optional<ProtocolFrame> heartbeat_frame;
+    const auto soak_deadline =
+    std::chrono::steady_clock::now() +
+    std::chrono::seconds(5);
 
-    while (!heartbeat_frame.has_value())
-    {
-        const auto current_time =
-            std::chrono::steady_clock::now();
+std::size_t accepted_heartbeats = 0U;
 
-        const auto elapsed_ms =
-            std::chrono::duration_cast<
-                std::chrono::milliseconds>(
-                    current_time - start_time)
-                .count();
+while (std::chrono::steady_clock::now() <
+       soak_deadline)
+{
+    const auto current_time =
+        std::chrono::steady_clock::now();
 
-        heartbeat_frame =
-            session.heartbeat_if_due(
-                static_cast<std::uint32_t>(
-                    elapsed_ms));
+    const auto elapsed_ms =
+        std::chrono::duration_cast<
+            std::chrono::milliseconds>(
+                current_time - start_time)
+            .count();
 
-        if (!heartbeat_frame.has_value())
-        {
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(10));
-        }
-    }
+    const auto now_ms =
+        static_cast<std::uint32_t>(
+            elapsed_ms);
 
-    std::uint8_t heartbeat_wire_data[
-        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+    session.check_link_timeout(now_ms);
 
-    const std::size_t heartbeat_wire_size =
-        protocol_frame_encode(
-            &heartbeat_frame.value(),
-            heartbeat_wire_data);
-
-    if (heartbeat_wire_size == 0U)
+    if (session.state() !=
+        Stm32LinkState::Synchronized)
     {
         std::cerr
-            << "Failed to encode HEARTBEAT frame"
+            << "STM32 link timed out"
             << std::endl;
 
         return 1;
     }
 
-    std::size_t heartbeat_bytes_sent = 0U;
+    const auto heartbeat_frame =
+        session.heartbeat_if_due(
+            now_ms);
 
-    while (heartbeat_bytes_sent <
-           heartbeat_wire_size)
+    if (heartbeat_frame.has_value())
     {
-        const LinuxSerialPollResult poll_result =
-            serial_port.wait(
-                true,
-                50);
+        std::uint8_t wire_data[
+            PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
 
-        if (poll_result.disconnected)
+        const std::size_t wire_size =
+            protocol_frame_encode(
+                &heartbeat_frame.value(),
+                wire_data);
+
+        if (wire_size == 0U)
         {
             std::cerr
-                << "Serial device disconnected while sending HEARTBEAT"
+                << "Failed to encode HEARTBEAT"
                 << std::endl;
 
             return 1;
         }
 
-        if (!poll_result.writable)
+        std::size_t bytes_sent = 0U;
+
+        while (bytes_sent < wire_size)
         {
-            continue;
-        }
+            const LinuxSerialPollResult poll_result =
+                serial_port.wait(
+                    true,
+                    50);
 
-        const std::ptrdiff_t written =
-            serial_port.write_some(
-                heartbeat_wire_data +
-                    heartbeat_bytes_sent,
-                heartbeat_wire_size -
-                    heartbeat_bytes_sent);
+            if (poll_result.disconnected)
+            {
+                std::cerr
+                    << "Serial device disconnected"
+                    << std::endl;
 
-        if (written < 0)
-        {
-            std::cerr
-                << "Failed to write HEARTBEAT"
-                << std::endl;
+                return 1;
+            }
 
-            return 1;
-        }
-
-        heartbeat_bytes_sent +=
-            static_cast<std::size_t>(
-                written);
-    }
-
-    std::cout
-        << "HEARTBEAT sent: "
-        << heartbeat_bytes_sent
-        << " bytes"
-        << std::endl;
-
-    const auto heartbeat_deadline =
-    std::chrono::steady_clock::now() +
-    std::chrono::milliseconds(1000);
-
-    bool heartbeat_accepted = false;
-
-    while (!heartbeat_accepted)
-    {
-        if (std::chrono::steady_clock::now() >=
-            heartbeat_deadline)
-        {
-            std::cerr
-                << "Timed out waiting for HEARTBEAT response"
-                << std::endl;
-
-            return 1;
-        }
-
-        const LinuxSerialPollResult poll_result =
-            serial_port.wait(
-                false,
-                50);
-
-        if (poll_result.disconnected)
-        {
-            std::cerr
-                << "Serial device disconnected while waiting for HEARTBEAT"
-                << std::endl;
-
-            return 1;
-        }
-
-        if (!poll_result.readable)
-        {
-            continue;
-        }
-
-        std::uint8_t read_buffer[128] = {};
-
-        const std::ptrdiff_t bytes_read =
-            serial_port.read_some(
-                read_buffer,
-                sizeof(read_buffer));
-
-        if (bytes_read < 0)
-        {
-            std::cerr
-                << "Failed to read HEARTBEAT response"
-                << std::endl;
-
-            return 1;
-        }
-
-        for (std::ptrdiff_t i = 0;
-             i < bytes_read;
-             ++i)
-        {
-            const ProtocolFrame* frame =
-                nullptr;
-
-            if (!protocol_frame_decoder_feed_byte(
-                    &decoder,
-                    read_buffer[i],
-                    &frame))
+            if (!poll_result.writable)
             {
                 continue;
             }
 
-            const auto current_time =
-                std::chrono::steady_clock::now();
+            const std::ptrdiff_t written =
+                serial_port.write_some(
+                    wire_data + bytes_sent,
+                    wire_size - bytes_sent);
 
-            const auto elapsed_ms =
-                std::chrono::duration_cast<
-                    std::chrono::milliseconds>(
-                        current_time - start_time)
-                    .count();
-
-            if (session.handle_heartbeat_response(
-                    *frame,
-                    static_cast<std::uint32_t>(
-                        elapsed_ms)))
+            if (written < 0)
             {
-                heartbeat_accepted = true;
-                break;
+                std::cerr
+                    << "Failed to write HEARTBEAT"
+                    << std::endl;
+
+                return 1;
             }
+
+            bytes_sent +=
+                static_cast<std::size_t>(
+                    written);
         }
+
+        std::cout
+            << "HEARTBEAT sent, sequence "
+            << heartbeat_frame->sequence
+            << std::endl;
     }
 
-    std::cout
-        << "HEARTBEAT response accepted"
-        << std::endl;
+    const LinuxSerialPollResult poll_result =
+        serial_port.wait(
+            false,
+            50);
+
+    if (poll_result.disconnected)
+    {
+        std::cerr
+            << "Serial device disconnected"
+            << std::endl;
+
+        return 1;
+    }
+
+    if (!poll_result.readable)
+    {
+        continue;
+    }
+
+    std::uint8_t read_buffer[128] = {};
+
+    const std::ptrdiff_t bytes_read =
+        serial_port.read_some(
+            read_buffer,
+            sizeof(read_buffer));
+
+    if (bytes_read < 0)
+    {
+        std::cerr
+            << "Failed to read serial device"
+            << std::endl;
+
+        return 1;
+    }
+
+    for (std::ptrdiff_t i = 0;
+         i < bytes_read;
+         ++i)
+    {
+        const ProtocolFrame* frame =
+            nullptr;
+
+        if (!protocol_frame_decoder_feed_byte(
+                &decoder,
+                read_buffer[i],
+                &frame))
+        {
+            continue;
+        }
+
+        const auto response_time =
+            std::chrono::steady_clock::now();
+
+        const auto response_elapsed_ms =
+            std::chrono::duration_cast<
+                std::chrono::milliseconds>(
+                    response_time - start_time)
+                .count();
+
+        if (session.handle_heartbeat_response(
+                *frame,
+                static_cast<std::uint32_t>(
+                    response_elapsed_ms)))
+        {
+            ++accepted_heartbeats;
+
+            std::cout
+                << "HEARTBEAT response accepted, sequence "
+                << frame->sequence
+                << std::endl;
+        }
+    }
+}
+
+std::cout
+    << "5-second heartbeat soak complete: "
+    << accepted_heartbeats
+    << " responses accepted"
+    << std::endl;
+
     return 0;
 }
