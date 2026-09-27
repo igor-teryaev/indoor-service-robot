@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "linux_serial_port.h"
+#include <algorithm>
 
 extern "C"
 {
@@ -374,6 +375,184 @@ TEST(
     EXPECT_EQ(
         decoded_payload.sync_token,
         sync_token);
+
+    serial_port.close();
+    ::close(master_fd);
+}
+
+TEST(
+    LinuxSerialPortPtyTest,
+    DecodesTwoCombinedFramesFromPtyMaster)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    LinuxSerialPort serial_port;
+
+    ASSERT_TRUE(
+        serial_port.open(
+            slave_name));
+
+    const LinkSyncPayload first_payload =
+    {
+        .sync_token =
+            UINT64_C(0x1111111111111111)
+    };
+
+    ProtocolFrame first_frame =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence = 10U,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &first_payload,
+        first_frame.payload);
+
+    const LinkSyncPayload second_payload =
+    {
+        .sync_token =
+            UINT64_C(0x2222222222222222)
+    };
+
+    ProtocolFrame second_frame =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence = 11U,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &second_payload,
+        second_frame.payload);
+
+    std::uint8_t first_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    std::uint8_t second_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t first_size =
+        protocol_frame_encode(
+            &first_frame,
+            first_wire);
+
+    const std::size_t second_size =
+        protocol_frame_encode(
+            &second_frame,
+            second_wire);
+
+    ASSERT_GT(first_size, 0U);
+    ASSERT_GT(second_size, 0U);
+
+    std::uint8_t combined[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE * 2U] = {};
+
+    std::copy(
+        first_wire,
+        first_wire + first_size,
+        combined);
+
+    std::copy(
+        second_wire,
+        second_wire + second_size,
+        combined + first_size);
+
+    const std::size_t combined_size =
+        first_size + second_size;
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            combined,
+            combined_size),
+        static_cast<ssize_t>(
+            combined_size));
+
+    ASSERT_TRUE(
+        serial_port.wait(
+            false,
+            100).readable);
+
+    std::uint8_t read_buffer[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE * 2U] = {};
+
+    const std::ptrdiff_t bytes_read =
+        serial_port.read_some(
+            read_buffer,
+            sizeof(read_buffer));
+
+    ASSERT_EQ(
+        bytes_read,
+        static_cast<std::ptrdiff_t>(
+            combined_size));
+
+    ProtocolFrameDecoder decoder = {};
+
+    protocol_frame_decoder_init(
+        &decoder);
+
+    std::uint16_t decoded_sequences[2] = {};
+    std::size_t decoded_count = 0U;
+
+    for (std::ptrdiff_t i = 0;
+         i < bytes_read;
+         ++i)
+    {
+        const ProtocolFrame* frame =
+            nullptr;
+
+        if (protocol_frame_decoder_feed_byte(
+                &decoder,
+                read_buffer[i],
+                &frame))
+        {
+            ASSERT_LT(
+                decoded_count,
+                2U);
+
+            // Copy what we need immediately.
+            // The decoder-owned frame is only valid
+            // until the next feed_byte() call.
+            decoded_sequences[decoded_count] =
+                frame->sequence;
+
+            ++decoded_count;
+        }
+    }
+
+    ASSERT_EQ(
+        decoded_count,
+        2U);
+
+    EXPECT_EQ(
+        decoded_sequences[0],
+        10U);
+
+    EXPECT_EQ(
+        decoded_sequences[1],
+        11U);
 
     serial_port.close();
     ::close(master_fd);
