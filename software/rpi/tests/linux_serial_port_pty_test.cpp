@@ -735,3 +735,43 @@ TEST(
     serial_port.close();
     ::close(master_fd);
 }
+
+TEST(
+    LinuxSerialPortPtyTest,
+    DetectsPtyMasterHangup)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    LinuxSerialPort serial_port;
+
+    ASSERT_TRUE(
+        serial_port.open(
+            slave_name));
+
+    // Simulate the remote serial device disappearing.
+    ::close(master_fd);
+    master_fd = -1;
+
+    const LinuxSerialPollResult poll_result =
+        serial_port.wait(
+            false,
+            100);
+
+    EXPECT_TRUE(
+        poll_result.disconnected);
+
+    serial_port.close();
+}
