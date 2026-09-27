@@ -557,3 +557,181 @@ TEST(
     serial_port.close();
     ::close(master_fd);
 }
+
+TEST(
+    LinuxSerialPortPtyTest,
+    RecoversAfterBadCrcFrame)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    LinuxSerialPort serial_port;
+
+    ASSERT_TRUE(
+        serial_port.open(
+            slave_name));
+
+    const LinkSyncPayload bad_payload =
+    {
+        .sync_token =
+            UINT64_C(0x1111111111111111)
+    };
+
+    ProtocolFrame bad_frame =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence = 20U,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &bad_payload,
+        bad_frame.payload);
+
+    const LinkSyncPayload good_payload =
+    {
+        .sync_token =
+            UINT64_C(0x2222222222222222)
+    };
+
+    ProtocolFrame good_frame =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence = 21U,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &good_payload,
+        good_frame.payload);
+
+    std::uint8_t bad_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    std::uint8_t good_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t bad_size =
+        protocol_frame_encode(
+            &bad_frame,
+            bad_wire);
+
+    const std::size_t good_size =
+        protocol_frame_encode(
+            &good_frame,
+            good_wire);
+
+    ASSERT_GT(bad_size, 0U);
+    ASSERT_GT(good_size, 0U);
+
+    // Deliberately corrupt the CRC.
+    bad_wire[bad_size - 1U] ^= 0xFFU;
+
+    std::uint8_t combined[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE * 2U] = {};
+
+    std::copy(
+        bad_wire,
+        bad_wire + bad_size,
+        combined);
+
+    std::copy(
+        good_wire,
+        good_wire + good_size,
+        combined + bad_size);
+
+    const std::size_t combined_size =
+        bad_size + good_size;
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            combined,
+            combined_size),
+        static_cast<ssize_t>(
+            combined_size));
+
+    ProtocolFrameDecoder decoder = {};
+
+    protocol_frame_decoder_init(
+        &decoder);
+
+    std::size_t total_read = 0U;
+    bool valid_frame_received = false;
+    std::uint16_t decoded_sequence = 0U;
+
+    while (total_read < combined_size)
+    {
+        ASSERT_TRUE(
+            serial_port.wait(
+                false,
+                100).readable);
+
+        std::uint8_t read_buffer[128] = {};
+
+        const std::ptrdiff_t bytes_read =
+            serial_port.read_some(
+                read_buffer,
+                sizeof(read_buffer));
+
+        ASSERT_GT(
+            bytes_read,
+            0);
+
+        total_read +=
+            static_cast<std::size_t>(
+                bytes_read);
+
+        for (std::ptrdiff_t i = 0;
+             i < bytes_read;
+             ++i)
+        {
+            const ProtocolFrame* frame =
+                nullptr;
+
+            if (protocol_frame_decoder_feed_byte(
+                    &decoder,
+                    read_buffer[i],
+                    &frame))
+            {
+                valid_frame_received = true;
+                decoded_sequence =
+                    frame->sequence;
+            }
+        }
+    }
+
+    EXPECT_EQ(
+        decoder.crc_error_count,
+        1U);
+
+    ASSERT_TRUE(
+        valid_frame_received);
+
+    EXPECT_EQ(
+        decoded_sequence,
+        21U);
+
+    serial_port.close();
+    ::close(master_fd);
+}
