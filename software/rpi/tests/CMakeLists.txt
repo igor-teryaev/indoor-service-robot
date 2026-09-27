@@ -6,6 +6,7 @@ add_executable(
         motion_watchdog_test.cpp
         differential_drive_kinematics_test.cpp
         wheel_velocity_command_converter_test.cpp
+        stm32_link_session_test.cpp
 )
 
 target_link_libraries(
