@@ -438,6 +438,15 @@ int main(
                         << frame->sequence
                         << std::endl;
                 }
+                else if (session.state() ==
+                         Stm32LinkState::Disconnected)
+                {
+                    std::cerr
+                        << "STM32 reported link unsynchronized"
+                        << std::endl;
+
+                    break;
+                }
             }
         }
 
