@@ -9,6 +9,20 @@ add_executable(
         stm32_link_session_test.cpp
 )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(
+            indoor_service_robot_tests
+            PRIVATE
+            linux_serial_port_pty_test.cpp
+    )
+
+    target_link_libraries(
+            indoor_service_robot_tests
+            PRIVATE
+            util
+    )
+endif()
+
 target_link_libraries(
         indoor_service_robot_tests
         PRIVATE
