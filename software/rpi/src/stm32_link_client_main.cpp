@@ -88,8 +88,10 @@ int main(
 
         if (poll_result.disconnected)
         {
+            session.disconnect();
+
             std::cerr
-                << "Serial device disconnected while sending LINK_SYNC"
+                << "STM32 link lost: serial device disconnected"
                 << std::endl;
 
             return 1;
@@ -107,8 +109,10 @@ int main(
 
         if (written < 0)
         {
+            session.disconnect();
+
             std::cerr
-                << "Failed to write LINK_SYNC"
+                << "STM32 link lost: serial write failed"
                 << std::endl;
 
             return 1;
@@ -166,8 +170,10 @@ int main(
 
         if (poll_result.disconnected)
         {
+            session.disconnect();
+
             std::cerr
-                << "Serial device disconnected while waiting for LINK_SYNC_OK"
+                << "STM32 link lost: serial device disconnected"
                 << std::endl;
 
             return 1;
@@ -187,8 +193,10 @@ int main(
 
         if (bytes_read < 0)
         {
+            session.disconnect();
+
             std::cerr
-                << "Failed to read serial device"
+                << "STM32 link lost: serial read failed"
                 << std::endl;
 
             return 1;
@@ -235,7 +243,7 @@ int main(
 
     const auto soak_deadline =
     std::chrono::steady_clock::now() +
-    std::chrono::seconds(5);
+    std::chrono::seconds(30);
 
 std::size_t accepted_heartbeats = 0U;
 
@@ -301,8 +309,10 @@ while (std::chrono::steady_clock::now() <
 
             if (poll_result.disconnected)
             {
+                session.disconnect();
+
                 std::cerr
-                    << "Serial device disconnected"
+                    << "STM32 link lost: serial device disconnected"
                     << std::endl;
 
                 return 1;
@@ -320,8 +330,10 @@ while (std::chrono::steady_clock::now() <
 
             if (written < 0)
             {
+                session.disconnect();
+
                 std::cerr
-                    << "Failed to write HEARTBEAT"
+                    << "STM32 link lost: serial write failed"
                     << std::endl;
 
                 return 1;
@@ -345,8 +357,10 @@ while (std::chrono::steady_clock::now() <
 
     if (poll_result.disconnected)
     {
+        session.disconnect();
+
         std::cerr
-            << "Serial device disconnected"
+            << "STM32 link lost: serial device disconnected"
             << std::endl;
 
         return 1;
@@ -366,8 +380,10 @@ while (std::chrono::steady_clock::now() <
 
     if (bytes_read < 0)
     {
+        session.disconnect();
+
         std::cerr
-            << "Failed to read serial device"
+            << "STM32 link lost: serial read failed"
             << std::endl;
 
         return 1;
@@ -413,7 +429,7 @@ while (std::chrono::steady_clock::now() <
 }
 
 std::cout
-    << "5-second heartbeat soak complete: "
+    << "30-second heartbeat soak complete: "
     << accepted_heartbeats
     << " responses accepted"
     << std::endl;
