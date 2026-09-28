@@ -7,6 +7,40 @@ extern "C"
 #include "protocol_message_type.h"
 #include "motion_ack_codec.h"
 #include "motion_response_codec.h"
+#include "wheel_velocity_payload_codec.h"
+}
+
+std::optional<ProtocolFrame>Stm32MotionSession::build_wheel_velocity(
+    const std::int16_t left_velocity_mm_s,
+    const std::int16_t right_velocity_mm_s)
+{
+    if (!motion_active_)
+    {
+        return std::nullopt;
+    }
+
+    const WheelVelocityPayload payload =
+    {
+        .motion_session_id = active_session_id_,
+        .command =
+        {
+            .left_velocity_mm_s = left_velocity_mm_s,
+            .right_velocity_mm_s = right_velocity_mm_s
+        }
+    };
+
+    ProtocolFrame frame =
+    {
+        .message_type = PROTOCOL_MESSAGE_TYPE_WHEEL_VELOCITY,
+        .sequence = next_wheel_sequence_++,
+        .payload_length = WHEEL_VELOCITY_PAYLOAD_WIRE_SIZE
+    };
+
+    wheel_velocity_payload_encode(
+        &payload,
+        frame.payload);
+
+    return frame;
 }
 
 std::optional<ProtocolFrame>Stm32MotionSession::begin_start_session(const std::uint32_t motion_session_id)
@@ -126,6 +160,25 @@ std::optional<MotionResponseResult>Stm32MotionSession::handle_response(const Pro
     if (payload.motion_session_id != pending_session_id_)
     {
         return std::nullopt;
+    }
+
+    if (pending_command_ == MOTION_LIFECYCLE_COMMAND_START_SESSION)
+    {
+        if (payload.result == MOTION_RESPONSE_OK ||
+            payload.result == MOTION_RESPONSE_ALREADY_ACTIVE)
+        {
+            motion_active_ = true;
+            active_session_id_ = pending_session_id_;
+        }
+    }
+    else if (pending_command_ == MOTION_LIFECYCLE_COMMAND_END_SESSION)
+    {
+        if (payload.result == MOTION_RESPONSE_OK ||
+            payload.result == MOTION_RESPONSE_ALREADY_ENDED)
+        {
+            motion_active_ = false;
+            active_session_id_ = 0U;
+        }
     }
 
     transaction_pending_ = false;
@@ -262,4 +315,7 @@ void Stm32MotionSession::reset()
 
     retry_count_ = 0U;
     last_transmit_ms_ = 0U;
+
+    motion_active_ = false;
+    active_session_id_ = 0U;
 }

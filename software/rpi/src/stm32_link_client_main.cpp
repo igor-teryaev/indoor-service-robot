@@ -40,6 +40,7 @@ int main(
     LinuxSerialPort serial_port;
     Stm32LinkSession session;
     Stm32MotionSession motion_session;
+    bool wheel_test_sent = false;
 
     while (true)
     {
@@ -624,6 +625,32 @@ int main(
                             << static_cast<unsigned>(
                                 motion_result.value())
                             << std::endl;
+
+                        if (!wheel_test_sent)
+                        {
+                            const auto wheel_frame =
+                                motion_session.build_wheel_velocity(
+                                    100,
+                                    100);
+
+                            if (wheel_frame.has_value())
+                            {
+                                if (!send_frame(
+                                        wheel_frame.value()))
+                                {
+                                    transport_failed = true;
+                                    break;
+                                }
+
+                                wheel_test_sent = true;
+
+                                std::cout
+                                    << "WHEEL_VELOCITY sent, sequence "
+                                    << wheel_frame->sequence
+                                    << ", left 100 mm/s, right 100 mm/s"
+                                    << std::endl;
+                            }
+                        }
                     }
                 }
             }

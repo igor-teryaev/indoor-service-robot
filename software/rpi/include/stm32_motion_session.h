@@ -26,6 +26,10 @@ public:
     [[nodiscard]] std::optional<ProtocolFrame> retry_if_due(std::uint32_t now_ms);
 
     [[nodiscard]] bool retry_exhausted(std::uint32_t now_ms) const;
+
+    [[nodiscard]] std::optional<ProtocolFrame> build_wheel_velocity(
+            std::int16_t left_velocity_mm_s,
+            std::int16_t right_velocity_mm_s);
 private:
     std::uint16_t next_sequence_ = 1U;
     std::uint16_t pending_sequence_ = 0U;
@@ -43,4 +47,9 @@ private:
     static constexpr std::uint32_t ack_timeout_ms_ = 100U;
     static constexpr std::uint32_t terminal_timeout_ms_ = 750U;
     static constexpr std::uint8_t max_retries_ = 3U;
+
+    std::uint16_t next_wheel_sequence_ = 1U;
+
+    bool motion_active_ = false;
+    std::uint32_t active_session_id_ = 0U;
 };
