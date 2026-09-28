@@ -42,8 +42,8 @@ int main(
     Stm32MotionSession motion_session;
 
     bool wheel_test_sent = false;
-    bool motion_end_sent = false;
-    std::optional<std::uint32_t> wheel_test_sent_at_ms;
+    bool continuous_wheel_test_active = false;
+    std::optional<std::uint32_t> last_wheel_tx_ms;
 
     while (true)
     {
@@ -401,45 +401,29 @@ int main(
 
             session.check_link_timeout(now_ms);
 
-            if (wheel_test_sent &&
-                !motion_end_sent &&
-                wheel_test_sent_at_ms.has_value() &&
-                now_ms - wheel_test_sent_at_ms.value() >= 100U)
+            if (continuous_wheel_test_active &&
+                last_wheel_tx_ms.has_value() &&
+                now_ms - last_wheel_tx_ms.value() >= 50U)
             {
-                const auto motion_end =
-                    motion_session.begin_end_session(
-                        motion_session_id);
+                const auto wheel_frame =
+                    motion_session.build_wheel_velocity(
+                        100,
+                        100);
 
-                if (motion_end.has_value())
+                if (wheel_frame.has_value())
                 {
                     if (!send_frame(
-                            motion_end.value()))
+                            wheel_frame.value()))
                     {
                         transport_failed = true;
                         break;
                     }
 
-                    const auto transmit_time =
-                        std::chrono::steady_clock::now();
-
-                    const auto transmit_elapsed_ms =
-                        std::chrono::duration_cast<
-                            std::chrono::milliseconds>(
-                                transmit_time -
-                                epoch_start)
-                            .count();
-
-                    motion_session.mark_pending_transmitted(
-                        static_cast<std::uint32_t>(
-                            transmit_elapsed_ms));
-
-                    motion_end_sent = true;
+                    last_wheel_tx_ms = now_ms;
 
                     std::cout
-                        << "MOTION_END sent, sequence "
-                        << motion_end->sequence
-                        << ", session "
-                        << motion_session_id
+                        << "WHEEL_VELOCITY sent, sequence "
+                        << wheel_frame->sequence
                         << std::endl;
                 }
             }
@@ -665,9 +649,7 @@ int main(
                     if (motion_result.has_value())
                     {
                         std::cout
-                            << (motion_end_sent
-                                    ? "MOTION_END response, sequence "
-                                    : "MOTION_START response, sequence ")
+                            << "MOTION_START response, sequence "
                             << frame->sequence
                             << ", result "
                             << static_cast<unsigned>(
@@ -691,7 +673,8 @@ int main(
                                 }
 
                                 wheel_test_sent = true;
-                                wheel_test_sent_at_ms =
+                                continuous_wheel_test_active = true;
+                                last_wheel_tx_ms =
                                     static_cast<std::uint32_t>(
                                         response_elapsed_ms);
 
@@ -706,6 +689,9 @@ int main(
                 }
             }
         }
+
+        continuous_wheel_test_active = false;
+        last_wheel_tx_ms.reset();
 
         session.disconnect();
         motion_session.reset();
