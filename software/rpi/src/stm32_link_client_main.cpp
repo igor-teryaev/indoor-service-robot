@@ -40,6 +40,8 @@ int main(
     LinuxSerialPort serial_port;
     Stm32LinkSession session;
     Stm32MotionSession motion_session;
+
+    bool wheel_test_sent = false;
     bool motion_end_sent = false;
     std::optional<std::uint32_t> wheel_test_sent_at_ms;
 
