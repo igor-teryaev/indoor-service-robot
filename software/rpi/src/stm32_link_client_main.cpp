@@ -40,7 +40,8 @@ int main(
     LinuxSerialPort serial_port;
     Stm32LinkSession session;
     Stm32MotionSession motion_session;
-    bool wheel_test_sent = false;
+    bool motion_end_sent = false;
+    std::optional<std::uint32_t> wheel_test_sent_at_ms;
 
     while (true)
     {
@@ -398,6 +399,49 @@ int main(
 
             session.check_link_timeout(now_ms);
 
+            if (wheel_test_sent &&
+                !motion_end_sent &&
+                wheel_test_sent_at_ms.has_value() &&
+                now_ms - wheel_test_sent_at_ms.value() >= 100U)
+            {
+                const auto motion_end =
+                    motion_session.begin_end_session(
+                        motion_session_id);
+
+                if (motion_end.has_value())
+                {
+                    if (!send_frame(
+                            motion_end.value()))
+                    {
+                        transport_failed = true;
+                        break;
+                    }
+
+                    const auto transmit_time =
+                        std::chrono::steady_clock::now();
+
+                    const auto transmit_elapsed_ms =
+                        std::chrono::duration_cast<
+                            std::chrono::milliseconds>(
+                                transmit_time -
+                                epoch_start)
+                            .count();
+
+                    motion_session.mark_pending_transmitted(
+                        static_cast<std::uint32_t>(
+                            transmit_elapsed_ms));
+
+                    motion_end_sent = true;
+
+                    std::cout
+                        << "MOTION_END sent, sequence "
+                        << motion_end->sequence
+                        << ", session "
+                        << motion_session_id
+                        << std::endl;
+                }
+            }
+
             if (session.state() != Stm32LinkState::Synchronized)
             {
                 std::cerr
@@ -410,7 +454,7 @@ int main(
             if (motion_session.retry_exhausted(now_ms))
             {
                 std::cerr
-                    << "MOTION_START retries exhausted"
+                    << "MOTION lifecycle retries exhausted"
                     << std::endl;
 
                 break;
@@ -442,7 +486,7 @@ int main(
                         retry_elapsed_ms));
 
                 std::cout
-                    << "MOTION_START retry sent, sequence "
+                    << "MOTION lifecycle retry sent, sequence "
                     << motion_retry->sequence
                     << std::endl;
             }
@@ -619,7 +663,9 @@ int main(
                     if (motion_result.has_value())
                     {
                         std::cout
-                            << "MOTION_START response, sequence "
+                            << (motion_end_sent
+                                    ? "MOTION_END response, sequence "
+                                    : "MOTION_START response, sequence ")
                             << frame->sequence
                             << ", result "
                             << static_cast<unsigned>(
@@ -643,6 +689,9 @@ int main(
                                 }
 
                                 wheel_test_sent = true;
+                                wheel_test_sent_at_ms =
+                                    static_cast<std::uint32_t>(
+                                        response_elapsed_ms);
 
                                 std::cout
                                     << "WHEEL_VELOCITY sent, sequence "
