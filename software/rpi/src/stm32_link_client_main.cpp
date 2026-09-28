@@ -7,7 +7,6 @@
 #include "linux_serial_port.h"
 #include "stm32_link_session.h"
 #include "stm32_motion_session.h"
-#include <optional>
 #include <thread>
 
 extern "C"
@@ -40,10 +39,6 @@ int main(
     LinuxSerialPort serial_port;
     Stm32LinkSession session;
     Stm32MotionSession motion_session;
-
-    bool wheel_test_sent = false;
-    bool continuous_wheel_test_active = false;
-    std::optional<std::uint32_t> last_wheel_tx_ms;
 
     while (true)
     {
@@ -401,33 +396,6 @@ int main(
 
             session.check_link_timeout(now_ms);
 
-            if (continuous_wheel_test_active &&
-                last_wheel_tx_ms.has_value() &&
-                now_ms - last_wheel_tx_ms.value() >= 50U)
-            {
-                const auto wheel_frame =
-                    motion_session.build_wheel_velocity(
-                        100,
-                        100);
-
-                if (wheel_frame.has_value())
-                {
-                    if (!send_frame(
-                            wheel_frame.value()))
-                    {
-                        transport_failed = true;
-                        break;
-                    }
-
-                    last_wheel_tx_ms = now_ms;
-
-                    std::cout
-                        << "WHEEL_VELOCITY sent, sequence "
-                        << wheel_frame->sequence
-                        << std::endl;
-                }
-            }
-
             if (session.state() != Stm32LinkState::Synchronized)
             {
                 std::cerr
@@ -655,43 +623,10 @@ int main(
                             << static_cast<unsigned>(
                                 motion_result.value())
                             << std::endl;
-
-                        if (!wheel_test_sent)
-                        {
-                            const auto wheel_frame =
-                                motion_session.build_wheel_velocity(
-                                    100,
-                                    100);
-
-                            if (wheel_frame.has_value())
-                            {
-                                if (!send_frame(
-                                        wheel_frame.value()))
-                                {
-                                    transport_failed = true;
-                                    break;
-                                }
-
-                                wheel_test_sent = true;
-                                continuous_wheel_test_active = true;
-                                last_wheel_tx_ms =
-                                    static_cast<std::uint32_t>(
-                                        response_elapsed_ms);
-
-                                std::cout
-                                    << "WHEEL_VELOCITY sent, sequence "
-                                    << wheel_frame->sequence
-                                    << ", left 100 mm/s, right 100 mm/s"
-                                    << std::endl;
-                            }
-                        }
                     }
                 }
             }
         }
-
-        continuous_wheel_test_active = false;
-        last_wheel_tx_ms.reset();
 
         session.disconnect();
         motion_session.reset();
