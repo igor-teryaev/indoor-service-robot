@@ -14,6 +14,8 @@ add_library(
         src/differential_drive_kinematics.cpp
         src/wheel_velocity_command_converter.cpp
         src/stm32_link_session.cpp
+        src/stm32_link_session.cpp
+        src/stm32_motion_session.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

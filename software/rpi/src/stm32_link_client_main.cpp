@@ -6,6 +6,7 @@
 #include <chrono>
 #include "linux_serial_port.h"
 #include "stm32_link_session.h"
+#include "stm32_motion_session.h"
 #include <optional>
 #include <thread>
 
@@ -38,6 +39,7 @@ int main(
 
     LinuxSerialPort serial_port;
     Stm32LinkSession session;
+    Stm32MotionSession motion_session;
 
     while (true)
     {
@@ -59,7 +61,7 @@ int main(
             << std::endl;
 
         session.disconnect();
-
+        motion_session.reset();
         ProtocolFrameDecoder decoder = {};
 
         protocol_frame_decoder_init(
@@ -67,6 +69,65 @@ int main(
 
         const auto epoch_start =
             std::chrono::steady_clock::now();
+
+        auto send_frame = [&serial_port](const ProtocolFrame& frame)
+            -> bool
+        {
+            std::uint8_t wire_data[
+                PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+            const std::size_t wire_size =
+                protocol_frame_encode(
+                    &frame,
+                    wire_data);
+
+            if (wire_size == 0U)
+            {
+                return false;
+            }
+
+            std::size_t bytes_sent = 0U;
+
+            while (bytes_sent < wire_size)
+            {
+                const LinuxSerialPollResult poll_result =
+                    serial_port.wait(
+                        true,
+                        50);
+
+                if (poll_result.disconnected)
+                {
+                    return false;
+                }
+
+                if (!poll_result.writable)
+                {
+                    continue;
+                }
+
+                const std::ptrdiff_t written =
+                    serial_port.write_some(
+                        wire_data + bytes_sent,
+                        wire_size - bytes_sent);
+
+                if (written < 0)
+                {
+                    return false;
+                }
+
+                if (written == 0)
+                {
+                    continue;
+                }
+
+                bytes_sent +=
+                    static_cast<std::size_t>(
+                        written);
+            }
+
+            return true;
+        };
+
 
         const std::uint64_t sync_token =
             random_generator();
@@ -139,6 +200,7 @@ int main(
 
         if (transport_failed)
         {
+            motion_session.reset();
             session.disconnect();
             serial_port.close();
 
@@ -240,6 +302,7 @@ int main(
 
         if (!synchronized)
         {
+            motion_session.reset();
             session.disconnect();
             serial_port.close();
 
@@ -266,8 +329,57 @@ int main(
             << "STM32 link synchronized"
             << std::endl;
 
-        while (session.state() ==
-               Stm32LinkState::Synchronized)
+        std::uint32_t motion_session_id = 0U;
+
+        while (motion_session_id == 0U)
+        {
+            motion_session_id =
+                static_cast<std::uint32_t>(
+                    random_generator());
+        }
+
+        const auto motion_start =
+            motion_session.begin_start_session(
+                motion_session_id);
+
+        if (!motion_start.has_value())
+        {
+            std::cerr
+                << "Failed to create MOTION_START"
+                << std::endl;
+
+            return 1;
+        }
+
+        if (!send_frame(motion_start.value()))
+        {
+            transport_failed = true;
+        }
+        else
+        {
+            const auto transmit_time =
+                std::chrono::steady_clock::now();
+
+            const auto transmit_elapsed_ms =
+                std::chrono::duration_cast<
+                    std::chrono::milliseconds>(
+                        transmit_time -
+                        epoch_start)
+                    .count();
+
+            motion_session.mark_pending_transmitted(
+                static_cast<std::uint32_t>(
+                    transmit_elapsed_ms));
+
+            std::cout
+                << "MOTION_START sent, sequence "
+                << motion_start->sequence
+                << ", session "
+                << motion_session_id
+                << std::endl;
+        }
+
+        while (!transport_failed && session.state() == Stm32LinkState::Synchronized)
         {
             const auto current_time =
                 std::chrono::steady_clock::now();
@@ -283,17 +395,55 @@ int main(
                 static_cast<std::uint32_t>(
                     elapsed_ms);
 
-            session.check_link_timeout(
-                now_ms);
+            session.check_link_timeout(now_ms);
 
-            if (session.state() !=
-                Stm32LinkState::Synchronized)
+            if (session.state() != Stm32LinkState::Synchronized)
             {
                 std::cerr
                     << "STM32 link timed out"
                     << std::endl;
 
                 break;
+            }
+
+            if (motion_session.retry_exhausted(now_ms))
+            {
+                std::cerr
+                    << "MOTION_START retries exhausted"
+                    << std::endl;
+
+                break;
+            }
+
+            const auto motion_retry =
+                motion_session.retry_if_due(
+                    now_ms);
+
+            if (motion_retry.has_value())
+            {
+                if (!send_frame(motion_retry.value()))
+                {
+                    transport_failed = true;
+                    break;
+                }
+
+                const auto retry_time = std::chrono::steady_clock::now();
+
+                const auto retry_elapsed_ms =
+                    std::chrono::duration_cast<
+                        std::chrono::milliseconds>(
+                            retry_time -
+                            epoch_start)
+                        .count();
+
+                motion_session.mark_pending_transmitted(
+                    static_cast<std::uint32_t>(
+                        retry_elapsed_ms));
+
+                std::cout
+                    << "MOTION_START retry sent, sequence "
+                    << motion_retry->sequence
+                    << std::endl;
             }
 
             const auto heartbeat_frame =
@@ -428,10 +578,13 @@ int main(
                             epoch_start)
                         .count();
 
+                const auto response_now_ms =
+                    static_cast<std::uint32_t>(
+                        response_elapsed_ms);
+
                 if (session.handle_heartbeat_response(
                         *frame,
-                        static_cast<std::uint32_t>(
-                            response_elapsed_ms)))
+                        response_now_ms))
                 {
                     std::cout
                         << "HEARTBEAT response accepted, sequence "
@@ -447,10 +600,37 @@ int main(
 
                     break;
                 }
+                else if (motion_session.handle_ack(
+                             *frame,
+                             response_now_ms))
+                {
+                    std::cout
+                        << "MOTION ACK accepted, sequence "
+                        << frame->sequence
+                        << std::endl;
+                }
+                else
+                {
+                    const auto motion_result =
+                        motion_session.handle_response(
+                            *frame);
+
+                    if (motion_result.has_value())
+                    {
+                        std::cout
+                            << "MOTION_START response, sequence "
+                            << frame->sequence
+                            << ", result "
+                            << static_cast<unsigned>(
+                                motion_result.value())
+                            << std::endl;
+                    }
+                }
             }
         }
 
         session.disconnect();
+        motion_session.reset();
         serial_port.close();
 
         if (transport_failed)

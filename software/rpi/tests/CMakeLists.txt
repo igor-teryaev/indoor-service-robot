@@ -7,6 +7,7 @@ add_executable(
         differential_drive_kinematics_test.cpp
         wheel_velocity_command_converter_test.cpp
         stm32_link_session_test.cpp
+        stm32_motion_session_test.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
