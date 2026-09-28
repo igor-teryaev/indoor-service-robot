@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "linux_serial_port.h"
+#include "stm32_motion_session.h"
 #include <algorithm>
 
 extern "C"
@@ -13,6 +14,8 @@ extern "C"
 #include "protocol_frame_decoder.h"
 #include "protocol_frame_encoder.h"
 #include "protocol_message_type.h"
+#include "motion_lifecycle_command_codec.h"
+#include "motion_ack_codec.h"
 }
 
 TEST(
@@ -774,4 +777,521 @@ TEST(
         poll_result.disconnected);
 
     serial_port.close();
+}
+
+TEST(
+    LinuxSerialPortPtyTest,
+    MotionRetryReusesSameTransaction)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    LinuxSerialPort serial_port;
+
+    ASSERT_TRUE(
+        serial_port.open(
+            slave_name));
+
+    Stm32MotionSession motion_session;
+
+    constexpr std::uint32_t motion_session_id =
+        UINT32_C(1234);
+
+    const auto original =
+        motion_session.begin_start_session(
+            motion_session_id);
+
+    ASSERT_TRUE(original.has_value());
+
+    std::uint8_t original_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t original_wire_size =
+        protocol_frame_encode(
+            &original.value(),
+            original_wire);
+
+    ASSERT_GT(
+        original_wire_size,
+        0U);
+
+    ASSERT_TRUE(
+        serial_port.wait(
+            true,
+            100).writable);
+
+    ASSERT_EQ(
+        serial_port.write_some(
+            original_wire,
+            original_wire_size),
+        static_cast<std::ptrdiff_t>(
+            original_wire_size));
+
+    motion_session.mark_pending_transmitted(
+        1000U);
+
+    std::uint8_t first_received[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const ssize_t first_received_size =
+        ::read(
+            master_fd,
+            first_received,
+            sizeof(first_received));
+
+    ASSERT_GT(
+        first_received_size,
+        0);
+
+    ProtocolFrameDecoder first_decoder = {};
+
+    protocol_frame_decoder_init(
+        &first_decoder);
+
+    ProtocolFrame first_frame_copy = {};
+    bool first_complete = false;
+
+    for (ssize_t i = 0;
+         i < first_received_size;
+         ++i)
+    {
+        const ProtocolFrame* frame =
+            nullptr;
+
+        if (protocol_frame_decoder_feed_byte(
+                &first_decoder,
+                first_received[i],
+                &frame))
+        {
+            first_frame_copy = *frame;
+            first_complete = true;
+        }
+    }
+
+    ASSERT_TRUE(first_complete);
+
+    EXPECT_FALSE(
+        motion_session.retry_if_due(
+            1099U).has_value());
+
+    const auto retry =
+        motion_session.retry_if_due(
+            1100U);
+
+    ASSERT_TRUE(retry.has_value());
+
+    std::uint8_t retry_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t retry_wire_size =
+        protocol_frame_encode(
+            &retry.value(),
+            retry_wire);
+
+    ASSERT_EQ(
+        retry_wire_size,
+        original_wire_size);
+
+    ASSERT_TRUE(
+        serial_port.wait(
+            true,
+            100).writable);
+
+    ASSERT_EQ(
+        serial_port.write_some(
+            retry_wire,
+            retry_wire_size),
+        static_cast<std::ptrdiff_t>(
+            retry_wire_size));
+
+    std::uint8_t second_received[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const ssize_t second_received_size =
+        ::read(
+            master_fd,
+            second_received,
+            sizeof(second_received));
+
+    ASSERT_GT(
+        second_received_size,
+        0);
+
+    ProtocolFrameDecoder second_decoder = {};
+
+    protocol_frame_decoder_init(
+        &second_decoder);
+
+    ProtocolFrame second_frame_copy = {};
+    bool second_complete = false;
+
+    for (ssize_t i = 0;
+         i < second_received_size;
+         ++i)
+    {
+        const ProtocolFrame* frame =
+            nullptr;
+
+        if (protocol_frame_decoder_feed_byte(
+                &second_decoder,
+                second_received[i],
+                &frame))
+        {
+            second_frame_copy = *frame;
+            second_complete = true;
+        }
+    }
+
+    ASSERT_TRUE(second_complete);
+
+    EXPECT_EQ(
+        second_frame_copy.message_type,
+        first_frame_copy.message_type);
+
+    EXPECT_EQ(
+        second_frame_copy.sequence,
+        first_frame_copy.sequence);
+
+    EXPECT_EQ(
+        second_frame_copy.payload_length,
+        first_frame_copy.payload_length);
+
+    MotionLifecycleCommandPayload first_payload = {};
+    MotionLifecycleCommandPayload second_payload = {};
+
+    motion_lifecycle_command_decode(
+        first_frame_copy.payload,
+        &first_payload);
+
+    motion_lifecycle_command_decode(
+        second_frame_copy.payload,
+        &second_payload);
+
+    EXPECT_EQ(
+        second_payload.command,
+        first_payload.command);
+
+    EXPECT_EQ(
+        second_payload.motion_session_id,
+        first_payload.motion_session_id);
+
+    serial_port.close();
+    ::close(master_fd);
+}
+
+TEST(
+    LinuxSerialPortPtyTest,
+    MotionRetriesWhenTerminalResponseIsMissing)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    LinuxSerialPort serial_port;
+
+    ASSERT_TRUE(
+        serial_port.open(
+            slave_name));
+
+    Stm32MotionSession motion_session;
+
+    const auto request =
+        motion_session.begin_start_session(
+            UINT32_C(1234));
+
+    ASSERT_TRUE(request.has_value());
+
+    std::uint8_t request_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t request_wire_size =
+        protocol_frame_encode(
+            &request.value(),
+            request_wire);
+
+    ASSERT_GT(request_wire_size, 0U);
+
+    ASSERT_TRUE(
+        serial_port.wait(
+            true,
+            100).writable);
+
+    ASSERT_EQ(
+        serial_port.write_some(
+            request_wire,
+            request_wire_size),
+        static_cast<std::ptrdiff_t>(
+            request_wire_size));
+
+    motion_session.mark_pending_transmitted(
+        1000U);
+
+    /*
+     * Fake STM32 consumes the request.
+     */
+    std::uint8_t fake_stm32_rx[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    ASSERT_GT(
+        ::read(
+            master_fd,
+            fake_stm32_rx,
+            sizeof(fake_stm32_rx)),
+        0);
+
+    /*
+     * Fake STM32 returns only ACK.
+     * It deliberately never sends MOTION_RESPONSE.
+     */
+    const MotionAckPayload ack_payload =
+    {
+        .status = MOTION_ACK_ACCEPTED
+    };
+
+    ProtocolFrame ack =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_ACK,
+
+        .sequence =
+            request->sequence,
+
+        .payload_length =
+            MOTION_ACK_WIRE_SIZE
+    };
+
+    motion_ack_encode(
+        &ack_payload,
+        ack.payload);
+
+    std::uint8_t ack_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t ack_wire_size =
+        protocol_frame_encode(
+            &ack,
+            ack_wire);
+
+    ASSERT_GT(ack_wire_size, 0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            ack_wire,
+            ack_wire_size),
+        static_cast<ssize_t>(
+            ack_wire_size));
+
+    ASSERT_TRUE(
+        serial_port.wait(
+            false,
+            100).readable);
+
+    std::uint8_t pi_rx[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::ptrdiff_t bytes_read =
+        serial_port.read_some(
+            pi_rx,
+            sizeof(pi_rx));
+
+    ASSERT_GT(bytes_read, 0);
+
+    ProtocolFrameDecoder decoder = {};
+
+    protocol_frame_decoder_init(
+        &decoder);
+
+    bool ack_accepted = false;
+
+    for (std::ptrdiff_t i = 0;
+         i < bytes_read;
+         ++i)
+    {
+        const ProtocolFrame* frame =
+            nullptr;
+
+        if (protocol_frame_decoder_feed_byte(
+                &decoder,
+                pi_rx[i],
+                &frame))
+        {
+            ack_accepted =
+                motion_session.handle_ack(
+                    *frame,
+                    1050U);
+        }
+    }
+
+    ASSERT_TRUE(ack_accepted);
+
+    /*
+     * Terminal timeout starts at ACK time:
+     * 1050 + 750 = 1800 ms.
+     */
+    EXPECT_FALSE(
+        motion_session.retry_if_due(
+            1799U).has_value());
+
+    const auto retry =
+        motion_session.retry_if_due(
+            1800U);
+
+    ASSERT_TRUE(retry.has_value());
+
+    EXPECT_EQ(
+        retry->sequence,
+        request->sequence);
+
+    serial_port.close();
+    ::close(master_fd);
+}
+
+TEST(
+    LinuxSerialPortPtyTest,
+    MotionStopsAfterThreeRetransmissions)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    LinuxSerialPort serial_port;
+
+    ASSERT_TRUE(
+        serial_port.open(
+            slave_name));
+
+    Stm32MotionSession motion_session;
+
+    const auto original =
+        motion_session.begin_start_session(
+            UINT32_C(1234));
+
+    ASSERT_TRUE(original.has_value());
+
+    auto transmit =
+        [&](const ProtocolFrame& frame)
+    {
+        std::uint8_t wire[
+            PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+        const std::size_t wire_size =
+            protocol_frame_encode(
+                &frame,
+                wire);
+
+        ASSERT_GT(wire_size, 0U);
+
+        ASSERT_TRUE(
+            serial_port.wait(
+                true,
+                100).writable);
+
+        ASSERT_EQ(
+            serial_port.write_some(
+                wire,
+                wire_size),
+            static_cast<std::ptrdiff_t>(
+                wire_size));
+
+        std::uint8_t fake_stm32_rx[
+            PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+        ASSERT_GT(
+            ::read(
+                master_fd,
+                fake_stm32_rx,
+                sizeof(fake_stm32_rx)),
+            0);
+    };
+
+    /*
+     * Initial transmission.
+     */
+    transmit(original.value());
+    motion_session.mark_pending_transmitted(0U);
+
+    /*
+     * Retransmission 1.
+     */
+    const auto retry1 =
+        motion_session.retry_if_due(100U);
+
+    ASSERT_TRUE(retry1.has_value());
+    EXPECT_EQ(retry1->sequence, original->sequence);
+
+    transmit(retry1.value());
+    motion_session.mark_pending_transmitted(100U);
+
+    /*
+     * Retransmission 2.
+     */
+    const auto retry2 =
+        motion_session.retry_if_due(200U);
+
+    ASSERT_TRUE(retry2.has_value());
+    EXPECT_EQ(retry2->sequence, original->sequence);
+
+    transmit(retry2.value());
+    motion_session.mark_pending_transmitted(200U);
+
+    /*
+     * Retransmission 3.
+     */
+    const auto retry3 =
+        motion_session.retry_if_due(300U);
+
+    ASSERT_TRUE(retry3.has_value());
+    EXPECT_EQ(retry3->sequence, original->sequence);
+
+    transmit(retry3.value());
+    motion_session.mark_pending_transmitted(300U);
+
+    /*
+     * No fourth retransmission.
+     */
+    EXPECT_FALSE(
+        motion_session.retry_if_due(
+            400U).has_value());
+
+    EXPECT_TRUE(
+        motion_session.retry_exhausted(
+            400U));
+
+    serial_port.close();
+    ::close(master_fd);
 }
