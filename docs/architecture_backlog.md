@@ -1,45 +1,94 @@
 # Architecture backlog
 
-## Completed host-side checkpoint
+## Completed motion-runtime checkpoint
 
-Through `a99f455`, the repository implements framing and ingress routing, the
-motion reliable receiver, lifecycle coordination with local operation IDs, and
-wire/lifecycle adapters. A fresh host build passed **192/192 CTest tests** on
-2026-09-17. See [System architecture](architecture.md) for the implemented
-contracts and their runtime boundaries.
+The Raspberry Pi ↔ STM32 motion-control runtime is now integrated and validated on
+real hardware.
 
-## Next: STM32 physical stop integration
+Completed:
 
-- Implement the nonblocking STM32 motor/safety adapter for `ENSURE_STOPPED`.
-  Capture its `operation_id` and return that same ID with `SUCCESS` or `FAILED`;
-  superseding a pending transaction must not restart the same physical stop.
-- Define and implement the physical evidence required for stop completion.
-  `SUCCESS` must mean a confirmed safe stop, not merely a queued or transmitted
-  request. Define stop deadlines and failure handling; clearing the protocol
-  session after `STOP_FAILED` must not remove motor-level fault inhibition.
-- Implement independent STM32-side motion-command timeout and safety enforcement
-  before powered operation. Keep hard actuator limits in the low-level controller.
+- live Linux serial transport between Raspberry Pi and STM32;
+- link synchronization and heartbeat supervision;
+- disconnect detection and automatic reconnect;
+- bounded Raspberry Pi frame transmission with a 100 ms absolute deadline;
+- reliable motion lifecycle START/END transactions with retry handling;
+- explicit Raspberry Pi motion-session state;
+- demand-driven motion-session creation;
+- latest-value-wins wheel demand;
+- 200 ms Raspberry Pi application-demand freshness limit;
+- 50 ms wheel-command transmit period while demand remains fresh;
+- explicit-zero and stale-demand motion termination;
+- STM32 session-aware wheel-command gating;
+- independent 250 ms STM32 motion-command watchdog;
+- reset/reconnect invalidation of old motion state and wheel demand;
+- prevention of automatic motion replay after reconnection.
+
+The full WSL test checkpoint passes **342/342 tests**.
+
+Hardware validation on Raspberry Pi 5 + NUCLEO-F446RE + DRV8833 + ARC101 confirmed
+motion start, sustained fresh demand, stale-demand stop, explicit-zero stop, and
+reset/reconnect behavior without replaying previous movement.
+
+## Remaining low-level motion work
+
+- Add encoder sensing to a drive platform that supports measured wheel feedback.
+- Implement closed-loop wheel-speed control rather than ARC101 open-loop feed-forward.
+- Define measured physical stop confirmation once usable wheel feedback is available.
+- Define stop deadlines and fault handling for cases where a commanded stop cannot
+  be physically confirmed.
+- Preserve motor-level fault inhibition independently of logical protocol-session
+  cleanup.
+- Measure timing margins for watchdog, transport failure, and physical stopping on
+  the final drive platform.
 
 ## Runtime and transport integration
 
-- Connect receive bytes -> decoder -> ingress router -> handler, dispatch lifecycle
-  actions, and transmit encoded ACK/response frames over the chosen Pi-to-STM32
-  transport. Integrate sender retries and timeouts with the receiver contract.
-- Connect link synchronization and heartbeat messages to runtime link state and
-  link-loss detection. Define reset/reconnect behavior: coordinator `reset()`
-  invalidates logical state but does not itself stop motors.
-- Gate session-tagged wheel commands by lifecycle state, safety, control authority,
-  and freshness. Complete stale-command protection across handover, recovery,
-  queues, and reconnects; link restoration must require a fresh movement command.
-- Route runtime control, safety, protocol transactions, and asynchronous completion
-  events through a single serialized owner/event loop before introducing callbacks
-  or concurrency. Use runtime `reset()` rather than reinitialization while old
-  completions can still arrive.
+Completed:
+
+- receive bytes -> streaming decoder -> ingress routing -> link/motion handling;
+- encoded ACK/response and wheel-frame transmission over the live Pi-to-STM32 UART;
+- sender retry handling and bounded frame-transmission deadlines;
+- link synchronization, heartbeat supervision, disconnect detection, and reconnect;
+- motion lifecycle START/END retry handling;
+- session-tagged wheel-command gating;
+- latest-value-wins application wheel demand;
+- stale-command protection across active motion and reconnect;
+- reconnect invalidation of cached wheel demand so restored communication cannot
+  replay movement automatically;
+- serialized Raspberry Pi runtime ownership through cooperative
+  `Stm32ClientRunner::poll()`.
+
+Remaining runtime work:
+
+- integrate manual ELRS/CRSF input;
+- connect the existing control-authority arbitration to the live STM32 runner;
+- integrate autonomous navigation output as another motion-demand source;
+- define the final application-level interface above `Stm32ClientRunner`;
+- evaluate whether the current cooperative polling structure needs further
+  scheduling changes once camera, navigation, and manual-control workloads are active.
 
 ## Hardware validation
 
-- Validate stop success/failure, stop timeout, link loss, and recovery on STM32
-  hardware. Verify that late completions cannot complete a newer operation and
-  that retries/supersede do not duplicate the physical stop operation.
-- Measure timing and confirm independent low-level safety under Raspberry Pi or
-  transport failure. Host-test results do not establish physical safety behavior.
+Completed on Raspberry Pi 5 + NUCLEO-F446RE + DRV8833 + ARC101:
+
+- live Raspberry Pi ↔ STM32 synchronization and heartbeat operation;
+- demand-driven motion start on fresh non-zero wheel demand;
+- sustained motion while application demand is refreshed;
+- stale-demand motion stop;
+- explicit-zero motion stop;
+- STM32 reset during active motion;
+- Raspberry Pi detection of the resulting unsynchronized link;
+- automatic reconnect and resynchronization;
+- verification that previous wheel demand is not replayed after reconnect.
+
+Still required:
+
+- validate measured physical stop confirmation once encoder feedback is available;
+- validate stop-failure and stop-timeout behavior against real feedback;
+- verify late physical completions cannot affect a newer operation in the final
+  asynchronous stop implementation;
+- verify retries and supersede behavior do not duplicate a physical stop operation;
+- measure watchdog, transport-failure, reconnect, and physical-stop timing margins;
+- validate independent low-level safety under Raspberry Pi failure or prolonged
+  transport failure;
+- repeat the relevant safety tests on the final Rowenta drive platform.

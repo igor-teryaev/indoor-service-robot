@@ -1,34 +1,54 @@
 # System Architecture
 
 The robot is split into a high-level Linux computer and a deterministic low-level
-controller. At implementation checkpoint `a99f455`, the C++ control core and shared
-C99 protocol/lifecycle library run in host tests. The STM32 firmware and live
-transport are still to be integrated.
+STM32 controller.
+
+At the current checkpoint, the Raspberry Pi ↔ STM32 motion-control path is running
+on real hardware. The Raspberry Pi owns high-level motion demand and communication
+runtime state, while the STM32 owns low-level motor actuation, motion-session gating,
+and independent fail-safe motion timeout behavior.
 
 ## Controller responsibilities
 
-Planned Raspberry Pi responsibilities:
+Raspberry Pi responsibilities:
 
 - camera acquisition and computer vision;
 - object detection and localization;
 - high-level navigation and behavior;
 - autonomous motion commands;
-- Wi-Fi communication with the operator PC.
+- future manual/autonomous control arbitration;
+- Wi-Fi communication with the operator PC;
+- STM32 link synchronization, heartbeat supervision, disconnect, and reconnect;
+- motion lifecycle initiation and retry handling;
+- latest-value-wins wheel-demand ownership;
+- application-level wheel-command freshness enforcement.
 
-The C++ control core in `software/rpi` already implements control-authority
-arbitration, safety state, coordinated stopping and recovery, a motion watchdog,
-kinematics, and a wheel-level motor interface. These components are host tested.
+The C++ control core in `software/rpi` also implements control-authority arbitration,
+safety state, coordinated stopping and recovery, motion watchdog logic, kinematics,
+and wheel-level motion interfaces.
 
-Planned STM32F446RE responsibilities:
+The concrete `Stm32ClientRunner` owns the live Raspberry Pi-side STM32 runtime.
+It advances cooperatively through `poll()` without a dedicated thread. It owns the
+serial transport, link session, motion session, frame decoder, reconnect state,
+current motion-session ID, and latest application wheel demand.
 
-- motor control, wheel encoder processing, and velocity control;
-- motion state machine, command timeout, and fail-safe stop;
-- hardware fault handling and low-level sensors;
-- ELRS/CRSF manual control;
-- execution and completion reporting for lifecycle `ENSURE_STOPPED` actions.
+STM32F446RE responsibilities:
 
-`firmware/stm32` is currently a placeholder. The protocol lifecycle coordinator
-does not directly drive motors or enforce the C++ safety/control-authority state.
+- TIM8 PWM motor control through DRV8833;
+- motion lifecycle coordination;
+- session-aware `WHEEL_VELOCITY` gating;
+- independent 250 ms motion-command watchdog;
+- immediate motor stop on motion timeout, link loss/reset paths, and lifecycle stop;
+- low-level hardware and sensor integration;
+- future encoder processing and closed-loop wheel-speed control;
+- future ELRS/CRSF manual-control integration.
+
+The current ARC101 platform has no encoder sensors installed. Therefore the active
+wheel-velocity path is open-loop feed-forward: a requested wheel velocity is mapped
+to a motor-driver command rather than regulated from measured wheel speed.
+
+The intended final drive platform is the Rowenta RR6825WH, where optical feedback
+is expected to support later closed-loop velocity control.
 
 ## Communication
 
@@ -60,8 +80,21 @@ resynchronization; the ingress router checks message type and exact payload size
 | `MOTION_RESPONSE` | 6 bytes | Codec, ingress route, and outbound frame builder |
 | `WHEEL_VELOCITY` | 8 bytes | Session-tagged wheel command codec and ingress route |
 
-Link synchronization and heartbeat codecs do not yet constitute a running link
-manager. Wheel-velocity routing does not yet gate or apply commands to STM32 motors.
+The Raspberry Pi runtime uses `Stm32LinkSession` and `Stm32ClientRunner` to perform
+live link synchronization, heartbeat supervision, disconnect detection, and
+reconnect handling over the Linux serial transport.
+
+Motion is intentionally separate from link liveness. Heartbeats maintain the
+synchronized link but do not refresh the STM32 motion watchdog.
+
+A motion session is started only when the Raspberry Pi has a fresh non-zero wheel
+demand. Session-tagged `WHEEL_VELOCITY` frames are accepted by the STM32 only while
+the matching motion session is active. Wheel commands refresh the independent
+250 ms STM32 motion watchdog.
+
+On the Raspberry Pi, application wheel demand is latest-value-wins and valid for
+200 ms. While demand remains fresh and non-zero, the runner transmits wheel commands
+at a 50 ms period. Explicit zero demand or stale demand initiates `MOTION_END`.
 
 ## Wire-to-lifecycle flow
 
@@ -78,7 +111,7 @@ received bytes
          | ACK / response fields -> motion_command_frames_build()
          |                       -> protocol_frame_encode() -> outbound bytes
          |
-         + ENSURE_STOPPED + operation_id -> future STM32 motor/safety adapter
+         + ENSURE_STOPPED + operation_id -> STM32 motion/motor safety adapter
                                               |
                                    asynchronous SUCCESS / FAILED
                                               |
@@ -128,8 +161,9 @@ may remain active after a newer command receives an immediate terminal response,
 but retries of that older sequence are stale. Completing the older pending
 operation still emits its response and preserves the newer terminal cache.
 
-This is receiver-side duplicate handling. Sender retransmission timers, live
-delivery, and reset/reconnect policy remain runtime integration work.
+This is receiver-side duplicate handling. Raspberry Pi sender retransmission,
+live serial delivery, lifecycle retry timing, and reset/reconnect policy are now
+implemented by the live runtime around this receiver contract.
 
 ## Motion lifecycle coordinator
 
@@ -158,7 +192,7 @@ Successful completion in `ENDING` produces `OK` and enters `NO_SESSION`.
 Failure in either state produces `STOP_FAILED` and clears the session.
 `ACTIVE` means the protocol session is established; it does not itself command
 wheel motion. Likewise, `NO_SESSION` after failure is not proof that motors stopped.
-The future motor/safety adapter must retain appropriate fault and motion inhibition.
+The STM32 motor/safety layer must retain appropriate fault and motion inhibition independently of protocol-session cleanup.
 
 ## Operation ID semantics
 
@@ -190,26 +224,70 @@ These lifetime requirements are also documented in
 
 ## Safety and integration boundary
 
-Control priority remains E-STOP/hardware fault, then manual ELRS control, then
-Raspberry Pi autonomous control. Motion commands must have bounded validity;
-loss of the active source must stop motion. Recovery must require a confirmed
-safe stop and a fresh valid motion command, without replaying stale movement.
-STM32 must enforce low-level safety independently of the Raspberry Pi application.
+Control priority remains E-STOP/hardware fault, then manual control, then autonomous
+control. The current live motion path implements the communication and freshness
+part of that safety model; full ELRS/manual-control integration is still future work.
 
-At this checkpoint, the protocol coordinator has no motor feedback, elapsed-time
-input, or connection to safety arbitration. `REJECTED_UNSAFE` is a defined wire
-result but is not emitted by this coordinator. Runtime safety gating, operation
-deadlines, serialized event ownership, link-loss handling, and real stop
-confirmation remain integration work in the [backlog](architecture_backlog.md).
+Motion requires two independent conditions:
+
+1. the Raspberry Pi ↔ STM32 link must be synchronized;
+2. a matching motion session must be active and continue receiving fresh
+   `WHEEL_VELOCITY` commands.
+
+Heartbeats keep the communication link synchronized but do not sustain motor motion.
+Only accepted wheel commands refresh the STM32's 250 ms motion watchdog.
+
+The Raspberry Pi additionally treats application wheel demand as valid for 200 ms.
+If that demand becomes stale, or if the application explicitly requests zero wheel
+velocity, `Stm32ClientRunner` initiates `MOTION_END`.
+
+A communication reset or reconnect invalidates local motion-session state and cached
+wheel demand. Restoring the link therefore does not automatically resume previous
+movement; the application must provide new post-reconnect motion demand.
+
+Frame transmission on the Raspberry Pi uses a bounded absolute deadline rather than
+waiting indefinitely for a writable serial transport.
+
+These mechanisms are complementary rather than interchangeable:
+
+- Raspberry Pi demand freshness limits how long stale application intent can persist;
+- motion lifecycle state prevents wheel traffic outside an active matching session;
+- the STM32 motion watchdog independently stops motion if wheel traffic disappears;
+- link heartbeat supervision detects communication failure and drives reconnect;
+- reconnect clears previous demand so old movement cannot be replayed.
+
+Physical stop confirmation using wheel feedback is not yet available on the ARC101
+bring-up platform because encoder sensors are not installed. Current ARC101 stop
+behavior is therefore validated through commanded motor shutdown and observed
+hardware behavior, not measured zero wheel velocity.
 
 ## Validation checkpoint
 
-A fresh host build of `a99f455` passed **192/192 CTest tests** on 2026-09-17,
-covering protocol, C++ control-core, and cross-component suites. Protocol tests
-include retries/collisions/stale sequences, supersede behavior, late completion
-after reset, frame construction, and fixed byte vectors for START -> ACK and
-successful START completion -> response.
+At the current Raspberry Pi motion-runtime checkpoint:
 
-This validates host-side logic and wire encoding. The physical STM32 stop adapter,
-live transport, and hardware timing have not yet been validated. Build commands
-and recent commit checkpoints are in the [README](../README.md).
+- the full WSL CTest suite passes **342/342 tests**;
+- `Stm32MotionSession` has explicit local lifecycle states and rejects wheel traffic
+  outside an active matching session;
+- Linux serial frame transmission uses a 100 ms absolute deadline;
+- `Stm32ClientRunner` owns live synchronization, heartbeat supervision, lifecycle
+  retries, reconnect state, and wheel-demand freshness;
+- Raspberry Pi PTY tests cover synchronization without motion, demand-driven START,
+  wheel transmission after successful START, explicit-zero END, stale-command END,
+  latest-value-wins behavior, reconnect without demand replay, and active-motion
+  reset/reconnect behavior.
+
+Hardware validation on Raspberry Pi 5 + NUCLEO-F446RE + DRV8833 + ARC101 confirmed:
+
+- synchronization alone does not move the motors;
+- fresh non-zero wheel demand starts a motion session and physically starts motion;
+- one-shot demand expires and causes motion to stop;
+- periodically refreshed demand sustains motion;
+- explicit zero demand ends the session and stops the motors;
+- Nucleo RESET during active motion immediately stops the motors;
+- the Raspberry Pi detects the unsynchronized STM32, reconnects, and does not replay
+  the previous wheel demand after resynchronization;
+- heartbeat traffic continues independently from motion lifecycle traffic.
+
+The current ARC101 validation does not establish closed-loop wheel-speed accuracy or
+measured physical stop confirmation because encoder sensors are not installed.
+Those properties remain future work for the final drive platform.

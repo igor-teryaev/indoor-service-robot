@@ -40,27 +40,40 @@ Manual control has priority over autonomous control. Physical safety conditions 
 
 ## Current status
 
-The project currently has a host-tested control and communication core.
+The project now has a host-tested and hardware-validated Raspberry Pi ↔ STM32 motion-control runtime.
 
 Implemented:
 
 - Raspberry Pi-side control arbitration and differential-drive motion logic;
-- shared C99 UART protocol;
-- CRC16/CCITT-FALSE framing and streaming frame decoder;
-- link synchronization and heartbeat messages;
-- wheel-velocity protocol;
-- reliable motion lifecycle commands with ACK and terminal responses;
-- motion session lifecycle and retry handling;
-- protection against stale asynchronous operation completions;
-- wire-to-lifecycle and lifecycle-to-frame adapters;
+- shared C99 UART protocol with CRC16/CCITT-FALSE framing and streaming decoding;
+- Linux serial transport with nonblocking reads/writes, PTY-tested fragmentation, CRC recovery, disconnect handling, and bounded frame transmission;
+- Raspberry Pi link synchronization, heartbeat scheduling/correlation, link timeout, disconnect, and reconnect handling;
+- reliable motion lifecycle commands with ACK, terminal responses, retries, and exact transaction reuse;
+- explicit Raspberry Pi motion lifecycle state: inactive, start pending, active, and end pending;
+- demand-driven motion sessions: synchronization alone does not enable motion;
+- latest-value-wins wheel demand with a 50 ms transmit period and 200 ms application-command freshness limit;
+- explicit zero or stale wheel demand ends the active motion session;
+- reconnect invalidates old wheel demand and never automatically replays previous movement;
 - STM32 TIM8/DRV8833 motor control;
-- STM32 motion-command watchdog with fail-safe braking.
+- STM32 session-aware wheel-command gating and 250 ms motion-command watchdog;
+- independent link heartbeat and motion-watchdog semantics: heartbeats keep the link alive but do not sustain motor motion;
+- separate Raspberry Pi hardware-probe executable using the production `Stm32ClientRunner`.
 
-The current host test suite passes **223/223 tests**.
+The latest full WSL test checkpoint passes **342/342 tests**.
 
-DRV8833 PWM control, forward/reverse motion, and watchdog braking were validated on the ARC101 test platform.
+Hardware validation on Raspberry Pi 5 + NUCLEO-F446RE + DRV8833 + ARC101 confirmed:
 
-Live Raspberry Pi ↔ STM32 transport, encoder/PID control, ELRS input, computer vision, and navigation remain in progress.
+- LINK_SYNC and heartbeat operation;
+- fresh wheel demand starts a motion session and physically starts the motors;
+- a one-shot command becomes stale and causes motion to stop;
+- periodically refreshed wheel demand sustains continuous motion;
+- an explicit zero command ends the motion session and physically stops the motors;
+- pressing Nucleo RESET during active motion immediately stops the motors;
+- the Raspberry Pi detects the unsynchronized STM32, reconnects, and does not replay the previous motion demand after resynchronization.
+
+ARC101 currently has no encoder sensors installed, so wheel velocity is open-loop feed-forward rather than closed-loop velocity control.
+
+Encoder/PID control for the final drive platform, ELRS runtime integration, computer vision, and navigation remain in progress.
 
 For detailed design information see:
 
@@ -74,7 +87,7 @@ For detailed design information see:
 - Restoring communication does not automatically resume old motion.
 - A new valid motion command is required before movement resumes.
 - Lifecycle ACK means that a command was accepted for processing, not that physical execution has completed.
-- Successful stop completion must mean that the motors are physically confirmed stopped.
+- On platforms with wheel feedback, successful stop completion should require physical confirmation that the wheels have stopped. The current ARC101 bring-up platform cannot provide that confirmation because encoder sensors are not installed.
 
 ## Hardware
 
