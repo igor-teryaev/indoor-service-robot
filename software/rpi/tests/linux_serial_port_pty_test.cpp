@@ -7,6 +7,10 @@
 #include "linux_serial_port.h"
 #include "stm32_motion_session.h"
 #include <algorithm>
+#include <poll.h>
+#include <chrono>
+#include "protocol_frame_sender.h"
+#include "stm32_client_runner.h"
 
 extern "C"
 {
@@ -16,6 +20,54 @@ extern "C"
 #include "protocol_message_type.h"
 #include "motion_lifecycle_command_codec.h"
 #include "motion_ack_codec.h"
+#include "motion_response_codec.h"
+#include "wheel_velocity_payload_codec.h"
+#include "heartbeat_codec.h"
+}
+
+static ProtocolFrame read_frame_from_pty_master(
+    const int master_fd)
+{
+    std::uint8_t buffer[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const ssize_t bytes_read =
+        ::read(
+            master_fd,
+            buffer,
+            sizeof(buffer));
+
+    EXPECT_GT(bytes_read, 0);
+
+    ProtocolFrameDecoder decoder = {};
+
+    protocol_frame_decoder_init(
+        &decoder);
+
+    ProtocolFrame decoded = {};
+    bool complete = false;
+
+    for (ssize_t i = 0;
+         i < bytes_read;
+         ++i)
+    {
+        const ProtocolFrame* frame =
+            nullptr;
+
+        if (protocol_frame_decoder_feed_byte(
+                &decoder,
+                buffer[i],
+                &frame))
+        {
+            decoded = *frame;
+            complete = true;
+            break;
+        }
+    }
+
+    EXPECT_TRUE(complete);
+
+    return decoded;
 }
 
 TEST(
@@ -1293,5 +1345,2093 @@ TEST(
             400U));
 
     serial_port.close();
+    ::close(master_fd);
+}
+
+TEST(
+    LinuxSerialPortPtyTest,
+    ProtocolFrameSendFailsWhenWriteDeadlineExpires)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    LinuxSerialPort serial_port;
+
+    ASSERT_TRUE(
+        serial_port.open(
+            slave_name));
+
+    /*
+     * Fill the PTY output buffer without reading
+     * from the master until the nonblocking slave
+     * can no longer accept data.
+     */
+    std::uint8_t filler[1024] = {};
+
+    while (true)
+    {
+        const std::ptrdiff_t written =
+            serial_port.write_some(
+                filler,
+                sizeof(filler));
+
+        ASSERT_GE(written, 0);
+
+        if (written == 0)
+        {
+            break;
+        }
+    }
+
+    ProtocolFrame frame =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_HEARTBEAT,
+
+        .sequence = 1U,
+
+        .payload_length = 0U
+    };
+
+    const auto start =
+        std::chrono::steady_clock::now();
+
+    EXPECT_FALSE(
+        send_protocol_frame(
+            serial_port,
+            frame,
+            std::chrono::milliseconds(100)));
+
+    const auto elapsed =
+        std::chrono::steady_clock::now() -
+        start;
+
+    EXPECT_LT(
+        elapsed,
+        std::chrono::milliseconds(500));
+
+    serial_port.close();
+    ::close(master_fd);
+}
+
+TEST(
+    Stm32ClientRunnerPtyTest,
+    DoesNotStartMotionAfterSynchronizationWithoutWheelDemand)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(
+        slave_name);
+
+    /*
+     * First poll opens the serial port and sends LINK_SYNC.
+     */
+    runner.poll();
+
+    const ProtocolFrame sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload sync_payload = {};
+
+    link_sync_decode(
+        sync.payload,
+        &sync_payload);
+
+    /*
+     * Fake STM32 returns the matching LINK_SYNC_OK.
+     */
+    ProtocolFrame sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &sync_payload,
+        sync_ok.payload);
+
+    std::uint8_t sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t sync_ok_wire_size =
+        protocol_frame_encode(
+            &sync_ok,
+            sync_ok_wire);
+
+    ASSERT_GT(
+        sync_ok_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            sync_ok_wire,
+            sync_ok_wire_size),
+        static_cast<ssize_t>(
+            sync_ok_wire_size));
+
+    /*
+     * Process LINK_SYNC_OK.
+     */
+    runner.poll();
+
+    /*
+     * Run one synchronized iteration with no wheel demand.
+     */
+    runner.poll();
+
+    pollfd descriptor =
+    {
+        .fd = master_fd,
+        .events = POLLIN,
+        .revents = 0
+    };
+
+    /*
+     * No MOTION_START -- in fact, no outgoing frame at all
+     * should be pending this soon after synchronization.
+     */
+    EXPECT_EQ(
+        ::poll(
+            &descriptor,
+            1,
+            0),
+        0);
+
+    ::close(master_fd);
+}
+
+TEST(
+    Stm32ClientRunnerPtyTest,
+    FreshNonzeroWheelDemandStartsMotionSession)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(
+        slave_name);
+
+    runner.poll();
+
+    const ProtocolFrame sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload sync_payload = {};
+
+    link_sync_decode(
+        sync.payload,
+        &sync_payload);
+
+    ProtocolFrame sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &sync_payload,
+        sync_ok.payload);
+
+    std::uint8_t sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t sync_ok_wire_size =
+        protocol_frame_encode(
+            &sync_ok,
+            sync_ok_wire);
+
+    ASSERT_GT(sync_ok_wire_size, 0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            sync_ok_wire,
+            sync_ok_wire_size),
+        static_cast<ssize_t>(
+            sync_ok_wire_size));
+
+    runner.poll();
+
+    const WheelVelocityCommand command =
+    {
+        .left_velocity_mm_s = 100,
+        .right_velocity_mm_s = 100
+    };
+
+    runner.set_wheel_command(
+        command);
+
+    runner.poll();
+
+    const ProtocolFrame motion_start =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        motion_start.message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+    MotionLifecycleCommandPayload payload = {};
+
+    motion_lifecycle_command_decode(
+        motion_start.payload,
+        &payload);
+
+    EXPECT_EQ(
+        payload.command,
+        MOTION_LIFECYCLE_COMMAND_START_SESSION);
+
+    EXPECT_NE(
+        payload.motion_session_id,
+        0U);
+
+    ::close(master_fd);
+}
+
+TEST(Stm32ClientRunnerPtyTest, SendsWheelVelocityAfterSuccessfulMotionStart)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(
+        slave_name);
+
+    /*
+     * Begin link synchronization.
+     */
+    runner.poll();
+
+    const ProtocolFrame sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload sync_payload = {};
+
+    link_sync_decode(
+        sync.payload,
+        &sync_payload);
+
+    ProtocolFrame sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &sync_payload,
+        sync_ok.payload);
+
+    std::uint8_t sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t sync_ok_wire_size =
+        protocol_frame_encode(
+            &sync_ok,
+            sync_ok_wire);
+
+    ASSERT_GT(
+        sync_ok_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            sync_ok_wire,
+            sync_ok_wire_size),
+        static_cast<ssize_t>(
+            sync_ok_wire_size));
+
+    runner.poll();
+
+    /*
+     * Fresh application demand should create MOTION_START.
+     */
+    const WheelVelocityCommand command =
+    {
+        .left_velocity_mm_s = 100,
+        .right_velocity_mm_s = 100
+    };
+
+    runner.set_wheel_command(
+        command);
+
+    runner.poll();
+
+    const ProtocolFrame motion_start =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        motion_start.message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+    MotionLifecycleCommandPayload start_payload = {};
+
+    motion_lifecycle_command_decode(
+        motion_start.payload,
+        &start_payload);
+
+    ASSERT_EQ(
+        start_payload.command,
+        MOTION_LIFECYCLE_COMMAND_START_SESSION);
+
+    ASSERT_NE(
+        start_payload.motion_session_id,
+        0U);
+
+    /*
+     * Fake STM32 accepts the lifecycle transaction.
+     */
+    const MotionAckPayload ack_payload =
+    {
+        .status =
+            MOTION_ACK_ACCEPTED
+    };
+
+    ProtocolFrame ack =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_ACK,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_ACK_WIRE_SIZE
+    };
+
+    motion_ack_encode(
+        &ack_payload,
+        ack.payload);
+
+    const MotionResponsePayload response_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            start_payload.motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &response_payload,
+        response.payload);
+
+    /*
+     * Put ACK and terminal RESPONSE into one PTY write so
+     * one runner RX iteration can consume both frames.
+     */
+    std::uint8_t ack_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    std::uint8_t response_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t ack_wire_size =
+        protocol_frame_encode(
+            &ack,
+            ack_wire);
+
+    const std::size_t response_wire_size =
+        protocol_frame_encode(
+            &response,
+            response_wire);
+
+    ASSERT_GT(ack_wire_size, 0U);
+    ASSERT_GT(response_wire_size, 0U);
+
+    std::uint8_t combined[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE * 2U] = {};
+
+    std::copy(
+        ack_wire,
+        ack_wire + ack_wire_size,
+        combined);
+
+    std::copy(
+        response_wire,
+        response_wire + response_wire_size,
+        combined + ack_wire_size);
+
+    const std::size_t combined_size =
+        ack_wire_size +
+        response_wire_size;
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            combined,
+            combined_size),
+        static_cast<ssize_t>(
+            combined_size));
+
+    /*
+     * Process ACK + terminal START response.
+     */
+    runner.poll();
+
+    /*
+     * Now the motion session is confirmed Active.
+     * The next iteration may transmit the latest wheel demand.
+     */
+    runner.poll();
+
+    const ProtocolFrame wheel =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        wheel.message_type,
+        PROTOCOL_MESSAGE_TYPE_WHEEL_VELOCITY);
+
+    WheelVelocityPayload wheel_payload = {};
+
+    wheel_velocity_payload_decode(
+        wheel.payload,
+        &wheel_payload);
+
+    EXPECT_EQ(
+        wheel_payload.motion_session_id,
+        start_payload.motion_session_id);
+
+    EXPECT_EQ(
+        wheel_payload.command.left_velocity_mm_s,
+        100);
+
+    EXPECT_EQ(
+        wheel_payload.command.right_velocity_mm_s,
+        100);
+
+    ::close(master_fd);
+}
+
+TEST(Stm32ClientRunnerPtyTest, ExplicitZeroCommandEndsActiveMotionSession)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(
+        slave_name);
+
+    /*
+     * Begin link synchronization.
+     */
+    runner.poll();
+
+    const ProtocolFrame sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload sync_payload = {};
+
+    link_sync_decode(
+        sync.payload,
+        &sync_payload);
+
+    ProtocolFrame sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &sync_payload,
+        sync_ok.payload);
+
+    std::uint8_t sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t sync_ok_wire_size =
+        protocol_frame_encode(
+            &sync_ok,
+            sync_ok_wire);
+
+    ASSERT_GT(
+        sync_ok_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            sync_ok_wire,
+            sync_ok_wire_size),
+        static_cast<ssize_t>(
+            sync_ok_wire_size));
+
+    runner.poll();
+
+    /*
+     * Fresh application demand should create MOTION_START.
+     */
+    const WheelVelocityCommand command =
+    {
+        .left_velocity_mm_s = 100,
+        .right_velocity_mm_s = 100
+    };
+
+    runner.set_wheel_command(
+        command);
+
+    runner.poll();
+
+    const ProtocolFrame motion_start =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        motion_start.message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+    MotionLifecycleCommandPayload start_payload = {};
+
+    motion_lifecycle_command_decode(
+        motion_start.payload,
+        &start_payload);
+
+    ASSERT_EQ(
+        start_payload.command,
+        MOTION_LIFECYCLE_COMMAND_START_SESSION);
+
+    ASSERT_NE(
+        start_payload.motion_session_id,
+        0U);
+
+    /*
+     * Fake STM32 accepts the lifecycle transaction.
+     */
+    const MotionAckPayload ack_payload =
+    {
+        .status =
+            MOTION_ACK_ACCEPTED
+    };
+
+    ProtocolFrame ack =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_ACK,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_ACK_WIRE_SIZE
+    };
+
+    motion_ack_encode(
+        &ack_payload,
+        ack.payload);
+
+    const MotionResponsePayload response_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            start_payload.motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &response_payload,
+        response.payload);
+
+    /*
+     * Put ACK and terminal RESPONSE into one PTY write so
+     * one runner RX iteration can consume both frames.
+     */
+    std::uint8_t ack_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    std::uint8_t response_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t ack_wire_size =
+        protocol_frame_encode(
+            &ack,
+            ack_wire);
+
+    const std::size_t response_wire_size =
+        protocol_frame_encode(
+            &response,
+            response_wire);
+
+    ASSERT_GT(ack_wire_size, 0U);
+    ASSERT_GT(response_wire_size, 0U);
+
+    std::uint8_t combined[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE * 2U] = {};
+
+    std::copy(
+        ack_wire,
+        ack_wire + ack_wire_size,
+        combined);
+
+    std::copy(
+        response_wire,
+        response_wire + response_wire_size,
+        combined + ack_wire_size);
+
+    const std::size_t combined_size =
+        ack_wire_size +
+        response_wire_size;
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            combined,
+            combined_size),
+        static_cast<ssize_t>(
+            combined_size));
+
+    /*
+     * Process ACK + terminal START response.
+     */
+    runner.poll();
+
+    /*
+     * Now the motion session is confirmed Active.
+     * The next iteration may transmit the latest wheel demand.
+     */
+    runner.poll();
+
+    const ProtocolFrame wheel =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        wheel.message_type,
+        PROTOCOL_MESSAGE_TYPE_WHEEL_VELOCITY);
+
+    WheelVelocityPayload wheel_payload = {};
+
+    wheel_velocity_payload_decode(
+        wheel.payload,
+        &wheel_payload);
+
+    EXPECT_EQ(
+        wheel_payload.motion_session_id,
+        start_payload.motion_session_id);
+
+    EXPECT_EQ(
+        wheel_payload.command.left_velocity_mm_s,
+        100);
+
+    EXPECT_EQ(
+        wheel_payload.command.right_velocity_mm_s,
+        100);
+
+    const WheelVelocityCommand zero_command =
+    {
+        .left_velocity_mm_s = 0,
+        .right_velocity_mm_s = 0
+    };
+
+    runner.set_wheel_command(
+        zero_command);
+
+    runner.poll();
+
+    const ProtocolFrame motion_end =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        motion_end.message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+    MotionLifecycleCommandPayload end_payload = {};
+
+    motion_lifecycle_command_decode(
+        motion_end.payload,
+        &end_payload);
+
+    EXPECT_EQ(
+        end_payload.command,
+        MOTION_LIFECYCLE_COMMAND_END_SESSION);
+
+    EXPECT_EQ(
+        end_payload.motion_session_id,
+        start_payload.motion_session_id);
+
+    ::close(master_fd);
+}
+
+TEST(Stm32ClientRunnerPtyTest, StaleWheelCommandEndsActiveMotionSession)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(
+        slave_name);
+
+    /*
+     * Begin link synchronization.
+     */
+    runner.poll();
+
+    const ProtocolFrame sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload sync_payload = {};
+
+    link_sync_decode(
+        sync.payload,
+        &sync_payload);
+
+    ProtocolFrame sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &sync_payload,
+        sync_ok.payload);
+
+    std::uint8_t sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t sync_ok_wire_size =
+        protocol_frame_encode(
+            &sync_ok,
+            sync_ok_wire);
+
+    ASSERT_GT(
+        sync_ok_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            sync_ok_wire,
+            sync_ok_wire_size),
+        static_cast<ssize_t>(
+            sync_ok_wire_size));
+
+    runner.poll();
+
+    /*
+     * Fresh application demand should create MOTION_START.
+     */
+    const WheelVelocityCommand command =
+    {
+        .left_velocity_mm_s = 100,
+        .right_velocity_mm_s = 100
+    };
+
+    runner.set_wheel_command(
+        command);
+
+    runner.poll();
+
+    const ProtocolFrame motion_start =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        motion_start.message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+    MotionLifecycleCommandPayload start_payload = {};
+
+    motion_lifecycle_command_decode(
+        motion_start.payload,
+        &start_payload);
+
+    ASSERT_EQ(
+        start_payload.command,
+        MOTION_LIFECYCLE_COMMAND_START_SESSION);
+
+    ASSERT_NE(
+        start_payload.motion_session_id,
+        0U);
+
+    /*
+     * Fake STM32 accepts the lifecycle transaction.
+     */
+    const MotionAckPayload ack_payload =
+    {
+        .status =
+            MOTION_ACK_ACCEPTED
+    };
+
+    ProtocolFrame ack =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_ACK,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_ACK_WIRE_SIZE
+    };
+
+    motion_ack_encode(
+        &ack_payload,
+        ack.payload);
+
+    const MotionResponsePayload response_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            start_payload.motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &response_payload,
+        response.payload);
+
+    /*
+     * Put ACK and terminal RESPONSE into one PTY write so
+     * one runner RX iteration can consume both frames.
+     */
+    std::uint8_t ack_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    std::uint8_t response_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t ack_wire_size =
+        protocol_frame_encode(
+            &ack,
+            ack_wire);
+
+    const std::size_t response_wire_size =
+        protocol_frame_encode(
+            &response,
+            response_wire);
+
+    ASSERT_GT(ack_wire_size, 0U);
+    ASSERT_GT(response_wire_size, 0U);
+
+    std::uint8_t combined[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE * 2U] = {};
+
+    std::copy(
+        ack_wire,
+        ack_wire + ack_wire_size,
+        combined);
+
+    std::copy(
+        response_wire,
+        response_wire + response_wire_size,
+        combined + ack_wire_size);
+
+    const std::size_t combined_size =
+        ack_wire_size +
+        response_wire_size;
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            combined,
+            combined_size),
+        static_cast<ssize_t>(
+            combined_size));
+
+    /*
+     * Process ACK + terminal START response.
+     */
+    runner.poll();
+
+    /*
+     * Now the motion session is confirmed Active.
+     * The next iteration may transmit the latest wheel demand.
+     */
+    runner.poll();
+
+    const ProtocolFrame wheel =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        wheel.message_type,
+        PROTOCOL_MESSAGE_TYPE_WHEEL_VELOCITY);
+
+    WheelVelocityPayload wheel_payload = {};
+
+    wheel_velocity_payload_decode(
+        wheel.payload,
+        &wheel_payload);
+
+    EXPECT_EQ(
+        wheel_payload.motion_session_id,
+        start_payload.motion_session_id);
+
+    EXPECT_EQ(
+        wheel_payload.command.left_velocity_mm_s,
+        100);
+
+    EXPECT_EQ(
+        wheel_payload.command.right_velocity_mm_s,
+        100);
+
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(210));
+
+    runner.poll();
+
+    const ProtocolFrame motion_end =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        motion_end.message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+    MotionLifecycleCommandPayload end_payload = {};
+
+    motion_lifecycle_command_decode(
+        motion_end.payload,
+        &end_payload);
+
+    EXPECT_EQ(
+        end_payload.command,
+        MOTION_LIFECYCLE_COMMAND_END_SESSION);
+
+    EXPECT_EQ(
+        end_payload.motion_session_id,
+        start_payload.motion_session_id);
+
+    ::close(master_fd);
+}
+
+TEST(Stm32ClientRunnerPtyTest, LatestWheelCommandWinsOnNextTransmission)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(
+        slave_name);
+
+    /*
+     * Begin link synchronization.
+     */
+    runner.poll();
+
+    const ProtocolFrame sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload sync_payload = {};
+
+    link_sync_decode(
+        sync.payload,
+        &sync_payload);
+
+    ProtocolFrame sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &sync_payload,
+        sync_ok.payload);
+
+    std::uint8_t sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t sync_ok_wire_size =
+        protocol_frame_encode(
+            &sync_ok,
+            sync_ok_wire);
+
+    ASSERT_GT(
+        sync_ok_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            sync_ok_wire,
+            sync_ok_wire_size),
+        static_cast<ssize_t>(
+            sync_ok_wire_size));
+
+    runner.poll();
+
+    /*
+     * Fresh application demand should create MOTION_START.
+     */
+    const WheelVelocityCommand command =
+    {
+        .left_velocity_mm_s = 100,
+        .right_velocity_mm_s = 100
+    };
+
+    runner.set_wheel_command(
+        command);
+
+    runner.poll();
+
+    const ProtocolFrame motion_start =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        motion_start.message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+    MotionLifecycleCommandPayload start_payload = {};
+
+    motion_lifecycle_command_decode(
+        motion_start.payload,
+        &start_payload);
+
+    ASSERT_EQ(
+        start_payload.command,
+        MOTION_LIFECYCLE_COMMAND_START_SESSION);
+
+    ASSERT_NE(
+        start_payload.motion_session_id,
+        0U);
+
+    /*
+     * Fake STM32 accepts the lifecycle transaction.
+     */
+    const MotionAckPayload ack_payload =
+    {
+        .status =
+            MOTION_ACK_ACCEPTED
+    };
+
+    ProtocolFrame ack =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_ACK,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_ACK_WIRE_SIZE
+    };
+
+    motion_ack_encode(
+        &ack_payload,
+        ack.payload);
+
+    const MotionResponsePayload response_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            start_payload.motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &response_payload,
+        response.payload);
+
+    /*
+     * Put ACK and terminal RESPONSE into one PTY write so
+     * one runner RX iteration can consume both frames.
+     */
+    std::uint8_t ack_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    std::uint8_t response_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t ack_wire_size =
+        protocol_frame_encode(
+            &ack,
+            ack_wire);
+
+    const std::size_t response_wire_size =
+        protocol_frame_encode(
+            &response,
+            response_wire);
+
+    ASSERT_GT(ack_wire_size, 0U);
+    ASSERT_GT(response_wire_size, 0U);
+
+    std::uint8_t combined[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE * 2U] = {};
+
+    std::copy(
+        ack_wire,
+        ack_wire + ack_wire_size,
+        combined);
+
+    std::copy(
+        response_wire,
+        response_wire + response_wire_size,
+        combined + ack_wire_size);
+
+    const std::size_t combined_size =
+        ack_wire_size +
+        response_wire_size;
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            combined,
+            combined_size),
+        static_cast<ssize_t>(
+            combined_size));
+
+    /*
+     * Process ACK + terminal START response.
+     */
+    runner.poll();
+
+    /*
+     * Now the motion session is confirmed Active.
+     * The next iteration may transmit the latest wheel demand.
+     */
+    runner.poll();
+
+    const ProtocolFrame wheel =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        wheel.message_type,
+        PROTOCOL_MESSAGE_TYPE_WHEEL_VELOCITY);
+
+    WheelVelocityPayload wheel_payload = {};
+
+    wheel_velocity_payload_decode(
+        wheel.payload,
+        &wheel_payload);
+
+    EXPECT_EQ(
+        wheel_payload.motion_session_id,
+        start_payload.motion_session_id);
+
+    EXPECT_EQ(
+        wheel_payload.command.left_velocity_mm_s,
+        100);
+
+    EXPECT_EQ(
+        wheel_payload.command.right_velocity_mm_s,
+        100);
+
+    const WheelVelocityCommand newer_command =
+    {
+        .left_velocity_mm_s = -150,
+        .right_velocity_mm_s = 250
+    };
+
+    runner.set_wheel_command(
+        newer_command);
+
+    /*
+     * The previous synchronized iteration already waited up to
+     * 50 ms after transmitting the first wheel frame, so the next
+     * wheel transmission is eligible now.
+     */
+    runner.poll();
+
+    const ProtocolFrame newer_wheel =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        newer_wheel.message_type,
+        PROTOCOL_MESSAGE_TYPE_WHEEL_VELOCITY);
+
+    WheelVelocityPayload newer_payload = {};
+
+    wheel_velocity_payload_decode(
+        newer_wheel.payload,
+        &newer_payload);
+
+    EXPECT_EQ(
+        newer_payload.motion_session_id,
+        start_payload.motion_session_id);
+
+    EXPECT_EQ(
+        newer_payload.command.left_velocity_mm_s,
+        -150);
+
+    EXPECT_EQ(
+        newer_payload.command.right_velocity_mm_s,
+        250);
+
+    ::close(master_fd);
+}
+
+TEST(Stm32ClientRunnerPtyTest, ReconnectDoesNotReplayPreviousWheelDemand)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(
+        slave_name);
+
+    /*
+     * Initial synchronization.
+     */
+    runner.poll();
+
+    const ProtocolFrame first_sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        first_sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload first_sync_payload = {};
+
+    link_sync_decode(
+        first_sync.payload,
+        &first_sync_payload);
+
+    ProtocolFrame first_sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            first_sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &first_sync_payload,
+        first_sync_ok.payload);
+
+    std::uint8_t first_sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t first_sync_ok_wire_size =
+        protocol_frame_encode(
+            &first_sync_ok,
+            first_sync_ok_wire);
+
+    ASSERT_GT(
+        first_sync_ok_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            first_sync_ok_wire,
+            first_sync_ok_wire_size),
+        static_cast<ssize_t>(
+            first_sync_ok_wire_size));
+
+    runner.poll();
+
+    /*
+     * Wait until the first heartbeat is due.
+     */
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(260));
+
+    runner.poll();
+
+    const ProtocolFrame heartbeat =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        heartbeat.message_type,
+        PROTOCOL_MESSAGE_TYPE_HEARTBEAT);
+
+    /*
+     * Fresh motion demand exists immediately before the
+     * STM32 reports that the link is unsynchronized.
+     */
+    const WheelVelocityCommand command =
+    {
+        .left_velocity_mm_s = 100,
+        .right_velocity_mm_s = 100
+    };
+
+    runner.set_wheel_command(
+        command);
+
+    const HeartbeatPayload unsynchronized_payload =
+    {
+        .link_state =
+            LINK_STATE_UNSYNCHRONIZED,
+
+        .uptime_ms = 1234U
+    };
+
+    ProtocolFrame unsynchronized_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_HEARTBEAT,
+
+        .sequence =
+            heartbeat.sequence,
+
+        .payload_length =
+            HEARTBEAT_WIRE_SIZE
+    };
+
+    heartbeat_encode(
+        &unsynchronized_payload,
+        unsynchronized_response.payload);
+
+    std::uint8_t unsynchronized_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t unsynchronized_wire_size =
+        protocol_frame_encode(
+            &unsynchronized_response,
+            unsynchronized_wire);
+
+    ASSERT_GT(
+        unsynchronized_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            unsynchronized_wire,
+            unsynchronized_wire_size),
+        static_cast<ssize_t>(
+            unsynchronized_wire_size));
+
+    /*
+     * This iteration may create MOTION_START before it reads
+     * the unsynchronized heartbeat response. The important
+     * property is that the resulting disconnect invalidates
+     * that demand and lifecycle state.
+     */
+    runner.poll();
+
+    const ProtocolFrame old_motion_start =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        old_motion_start.message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+    MotionLifecycleCommandPayload old_start_payload = {};
+
+    motion_lifecycle_command_decode(
+        old_motion_start.payload,
+        &old_start_payload);
+
+    ASSERT_EQ(
+        old_start_payload.command,
+        MOTION_LIFECYCLE_COMMAND_START_SESSION);
+
+    /*
+     * Allow the scheduled reconnect.
+     */
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(510));
+
+    runner.poll();
+
+    const ProtocolFrame second_sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        second_sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload second_sync_payload = {};
+
+    link_sync_decode(
+        second_sync.payload,
+        &second_sync_payload);
+
+    ProtocolFrame second_sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            second_sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &second_sync_payload,
+        second_sync_ok.payload);
+
+    std::uint8_t second_sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t second_sync_ok_wire_size =
+        protocol_frame_encode(
+            &second_sync_ok,
+            second_sync_ok_wire);
+
+    ASSERT_GT(
+        second_sync_ok_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            second_sync_ok_wire,
+            second_sync_ok_wire_size),
+        static_cast<ssize_t>(
+            second_sync_ok_wire_size));
+
+    runner.poll();
+
+    /*
+     * Reconnected and synchronized, but the old application
+     * wheel request must not be replayed.
+     */
+    runner.poll();
+
+    pollfd descriptor =
+    {
+        .fd = master_fd,
+        .events = POLLIN,
+        .revents = 0
+    };
+
+    EXPECT_EQ(
+        ::poll(
+            &descriptor,
+            1,
+            0),
+        0);
+
+    ::close(master_fd);
+}
+
+TEST(Stm32ClientRunnerPtyTest, ActiveMotionIsNotReplayedAfterReconnect)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(
+        slave_name);
+
+    /*
+     * Initial link synchronization.
+     */
+    runner.poll();
+
+    const ProtocolFrame first_sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        first_sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload first_sync_payload = {};
+
+    link_sync_decode(
+        first_sync.payload,
+        &first_sync_payload);
+
+    ProtocolFrame first_sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            first_sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &first_sync_payload,
+        first_sync_ok.payload);
+
+    std::uint8_t first_sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t first_sync_ok_wire_size =
+        protocol_frame_encode(
+            &first_sync_ok,
+            first_sync_ok_wire);
+
+    ASSERT_GT(
+        first_sync_ok_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            first_sync_ok_wire,
+            first_sync_ok_wire_size),
+        static_cast<ssize_t>(
+            first_sync_ok_wire_size));
+
+    runner.poll();
+
+    /*
+     * Let the first heartbeat become due while there is
+     * still no motion demand.
+     *
+     * This gives us a real pending heartbeat sequence that
+     * we can later answer with UNSYNCHRONIZED.
+     */
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(260));
+
+    runner.poll();
+
+    const ProtocolFrame heartbeat =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        heartbeat.message_type,
+        PROTOCOL_MESSAGE_TYPE_HEARTBEAT);
+
+    /*
+     * Request real motion.
+     */
+    const WheelVelocityCommand command =
+    {
+        .left_velocity_mm_s = 100,
+        .right_velocity_mm_s = 100
+    };
+
+    runner.set_wheel_command(
+        command);
+
+    runner.poll();
+
+    const ProtocolFrame motion_start =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        motion_start.message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+    MotionLifecycleCommandPayload start_payload = {};
+
+    motion_lifecycle_command_decode(
+        motion_start.payload,
+        &start_payload);
+
+    ASSERT_EQ(
+        start_payload.command,
+        MOTION_LIFECYCLE_COMMAND_START_SESSION);
+
+    ASSERT_NE(
+        start_payload.motion_session_id,
+        0U);
+
+    /*
+     * Fake STM32 accepts MOTION_START.
+     */
+    const MotionAckPayload ack_payload =
+    {
+        .status =
+            MOTION_ACK_ACCEPTED
+    };
+
+    ProtocolFrame ack =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_ACK,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_ACK_WIRE_SIZE
+    };
+
+    motion_ack_encode(
+        &ack_payload,
+        ack.payload);
+
+    const MotionResponsePayload response_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            start_payload.motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            motion_start.sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &response_payload,
+        response.payload);
+
+    std::uint8_t ack_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    std::uint8_t response_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t ack_wire_size =
+        protocol_frame_encode(
+            &ack,
+            ack_wire);
+
+    const std::size_t response_wire_size =
+        protocol_frame_encode(
+            &response,
+            response_wire);
+
+    ASSERT_GT(
+        ack_wire_size,
+        0U);
+
+    ASSERT_GT(
+        response_wire_size,
+        0U);
+
+    std::uint8_t combined[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE * 2U] = {};
+
+    std::copy(
+        ack_wire,
+        ack_wire + ack_wire_size,
+        combined);
+
+    std::copy(
+        response_wire,
+        response_wire + response_wire_size,
+        combined + ack_wire_size);
+
+    const std::size_t combined_size =
+        ack_wire_size +
+        response_wire_size;
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            combined,
+            combined_size),
+        static_cast<ssize_t>(
+            combined_size));
+
+    /*
+     * Process ACK + terminal START response.
+     * Motion is now Active locally.
+     */
+    runner.poll();
+
+    /*
+     * Before the next Active iteration, make the pending
+     * heartbeat response report UNSYNCHRONIZED.
+     *
+     * The runner will still emit its first wheel frame at
+     * the start of that iteration, then consume this response
+     * and disconnect/reset the active motion epoch.
+     */
+    const HeartbeatPayload unsynchronized_payload =
+    {
+        .link_state =
+            LINK_STATE_UNSYNCHRONIZED,
+
+        .uptime_ms = 1234U
+    };
+
+    ProtocolFrame unsynchronized_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_HEARTBEAT,
+
+        .sequence =
+            heartbeat.sequence,
+
+        .payload_length =
+            HEARTBEAT_WIRE_SIZE
+    };
+
+    heartbeat_encode(
+        &unsynchronized_payload,
+        unsynchronized_response.payload);
+
+    std::uint8_t unsynchronized_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t unsynchronized_wire_size =
+        protocol_frame_encode(
+            &unsynchronized_response,
+            unsynchronized_wire);
+
+    ASSERT_GT(
+        unsynchronized_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            unsynchronized_wire,
+            unsynchronized_wire_size),
+        static_cast<ssize_t>(
+            unsynchronized_wire_size));
+
+    runner.poll();
+
+    /*
+     * Prove motion really reached the wire before the link
+     * was invalidated.
+     */
+    const ProtocolFrame wheel =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        wheel.message_type,
+        PROTOCOL_MESSAGE_TYPE_WHEEL_VELOCITY);
+
+    WheelVelocityPayload wheel_payload = {};
+
+    wheel_velocity_payload_decode(
+        wheel.payload,
+        &wheel_payload);
+
+    EXPECT_EQ(
+        wheel_payload.motion_session_id,
+        start_payload.motion_session_id);
+
+    EXPECT_EQ(
+        wheel_payload.command.left_velocity_mm_s,
+        100);
+
+    EXPECT_EQ(
+        wheel_payload.command.right_velocity_mm_s,
+        100);
+
+    /*
+     * Wait for the runner's scheduled reconnect.
+     */
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(510));
+
+    runner.poll();
+
+    const ProtocolFrame second_sync =
+        read_frame_from_pty_master(
+            master_fd);
+
+    ASSERT_EQ(
+        second_sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload second_sync_payload = {};
+
+    link_sync_decode(
+        second_sync.payload,
+        &second_sync_payload);
+
+    ProtocolFrame second_sync_ok =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+
+        .sequence =
+            second_sync.sequence,
+
+        .payload_length =
+            LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(
+        &second_sync_payload,
+        second_sync_ok.payload);
+
+    std::uint8_t second_sync_ok_wire[
+        PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t second_sync_ok_wire_size =
+        protocol_frame_encode(
+            &second_sync_ok,
+            second_sync_ok_wire);
+
+    ASSERT_GT(
+        second_sync_ok_wire_size,
+        0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            second_sync_ok_wire,
+            second_sync_ok_wire_size),
+        static_cast<ssize_t>(
+            second_sync_ok_wire_size));
+
+    runner.poll();
+
+    /*
+     * We are synchronized again, but no fresh application
+     * command was supplied after reconnect.
+     */
+    runner.poll();
+
+    pollfd descriptor =
+    {
+        .fd = master_fd,
+        .events = POLLIN,
+        .revents = 0
+    };
+
+    /*
+     * The previous 100/100 demand must not cause either a
+     * new MOTION_START or a WHEEL_VELOCITY after reconnect.
+     */
+    EXPECT_EQ(
+        ::poll(
+            &descriptor,
+            1,
+            0),
+        0);
+
     ::close(master_fd);
 }

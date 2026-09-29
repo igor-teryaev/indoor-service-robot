@@ -14,7 +14,6 @@ add_library(
         src/differential_drive_kinematics.cpp
         src/wheel_velocity_command_converter.cpp
         src/stm32_link_session.cpp
-        src/stm32_link_session.cpp
         src/stm32_motion_session.cpp
 )
 
@@ -23,6 +22,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             robot_core
             PRIVATE
             src/linux_serial_port.cpp
+            src/protocol_frame_sender.cpp
+            src/stm32_client_runner.cpp
     )
 
     add_executable(
@@ -32,6 +33,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     target_link_libraries(
             stm32_link_client
+            PRIVATE
+            robot_core
+    )
+
+    add_executable(
+            stm32_motion_probe
+            src/stm32_motion_probe_main.cpp
+    )
+
+    target_link_libraries(
+            stm32_motion_probe
             PRIVATE
             robot_core
     )

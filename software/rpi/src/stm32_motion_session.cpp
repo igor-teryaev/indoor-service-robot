@@ -14,7 +14,7 @@ std::optional<ProtocolFrame>Stm32MotionSession::build_wheel_velocity(
     const std::int16_t left_velocity_mm_s,
     const std::int16_t right_velocity_mm_s)
 {
-    if (!motion_active_)
+    if (state_ != State::Active)
     {
         return std::nullopt;
     }
@@ -76,6 +76,9 @@ std::optional<ProtocolFrame>Stm32MotionSession::begin_start_session(const std::u
     retry_timer_running_ = false;
     retry_count_ = 0U;
     transaction_pending_ = true;
+
+    state_ = State::StartPending;
+    active_session_id_ = 0U;
 
     return frame;
 }
@@ -167,18 +170,19 @@ std::optional<MotionResponseResult>Stm32MotionSession::handle_response(const Pro
         if (payload.result == MOTION_RESPONSE_OK ||
             payload.result == MOTION_RESPONSE_ALREADY_ACTIVE)
         {
-            motion_active_ = true;
+            state_ = State::Active;
             active_session_id_ = pending_session_id_;
+        }
+        else
+        {
+            state_ = State::Inactive;
+            active_session_id_ = 0U;
         }
     }
     else if (pending_command_ == MOTION_LIFECYCLE_COMMAND_END_SESSION)
     {
-        if (payload.result == MOTION_RESPONSE_OK ||
-            payload.result == MOTION_RESPONSE_ALREADY_ENDED)
-        {
-            motion_active_ = false;
-            active_session_id_ = 0U;
-        }
+        state_ = State::Inactive;
+        active_session_id_ = 0U;
     }
 
     transaction_pending_ = false;
@@ -189,7 +193,9 @@ std::optional<MotionResponseResult>Stm32MotionSession::handle_response(const Pro
 
 std::optional<ProtocolFrame>Stm32MotionSession::begin_end_session(const std::uint32_t motion_session_id)
 {
-    if (transaction_pending_)
+    if (transaction_pending_ ||
+        state_ != State::Active ||
+        motion_session_id != active_session_id_)
     {
         return std::nullopt;
     }
@@ -220,7 +226,7 @@ std::optional<ProtocolFrame>Stm32MotionSession::begin_end_session(const std::uin
     retry_timer_running_ = false;
     retry_count_ = 0U;
     transaction_pending_ = true;
-
+    state_ = State::EndPending;
     return frame;
 }
 
@@ -302,6 +308,11 @@ bool Stm32MotionSession::retry_exhausted(const std::uint32_t now_ms) const
         timeout_ms;
 }
 
+Stm32MotionSession::State Stm32MotionSession::state() const
+{
+    return state_;
+}
+
 void Stm32MotionSession::reset()
 {
     pending_sequence_ = 0U;
@@ -316,6 +327,6 @@ void Stm32MotionSession::reset()
     retry_count_ = 0U;
     last_transmit_ms_ = 0U;
 
-    motion_active_ = false;
+    state_ = State::Inactive;
     active_session_id_ = 0U;
 }

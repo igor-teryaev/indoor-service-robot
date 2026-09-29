@@ -5,6 +5,7 @@
 #include <termios.h>
 #include <poll.h>
 #include <cerrno>
+#include <chrono>
 
 LinuxSerialPort::~LinuxSerialPort()
 {
@@ -182,13 +183,30 @@ LinuxSerialPollResult LinuxSerialPort::wait(
         descriptor.events |= POLLOUT;
     }
 
+    const auto deadline =
+    std::chrono::steady_clock::now() +
+    std::chrono::milliseconds(timeout_ms);
+
     while (true)
     {
+        const auto now =
+            std::chrono::steady_clock::now();
+
+        if (now >= deadline)
+        {
+            return {};
+        }
+
+        const auto remaining =
+            std::chrono::ceil<std::chrono::milliseconds>(
+                deadline - now);
+
         const int result =
             ::poll(
                 &descriptor,
                 1,
-                timeout_ms);
+                static_cast<int>(
+                    remaining.count()));
 
         if (result > 0)
         {

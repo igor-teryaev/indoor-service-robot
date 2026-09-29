@@ -368,6 +368,45 @@ TEST(
 
     Stm32MotionSession session;
 
+    const auto start =
+    session.begin_start_session(
+        motion_session_id);
+
+    ASSERT_TRUE(start.has_value());
+
+    const MotionResponsePayload start_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame start_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            start->sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &start_payload,
+        start_response.payload);
+
+    ASSERT_TRUE(
+        session.handle_response(
+            start_response).has_value()
+    );
+
     const auto frame =
         session.begin_end_session(
             motion_session_id);
@@ -381,7 +420,7 @@ TEST(
 
     EXPECT_EQ(
         frame->sequence,
-        1U
+        2U
     );
 
     EXPECT_EQ(
@@ -406,14 +445,50 @@ TEST(
     );
 }
 
-TEST(
-    Stm32MotionSessionTest,
-    AcceptsMatchingEndSessionResponse)
+TEST(Stm32MotionSessionTest, AcceptsMatchingEndSessionResponse)
 {
-    constexpr std::uint32_t motion_session_id =
-        UINT32_C(0x12345678);
+    constexpr std::uint32_t motion_session_id = UINT32_C(0x12345678);
 
     Stm32MotionSession session;
+
+    const auto start =
+    session.begin_start_session(
+        motion_session_id);
+
+    ASSERT_TRUE(start.has_value());
+
+    const MotionResponsePayload start_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame start_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            start->sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &start_payload,
+        start_response.payload);
+
+    ASSERT_TRUE(
+        session.handle_response(
+            start_response).has_value()
+    );
 
     const auto request =
         session.begin_end_session(
@@ -468,6 +543,45 @@ TEST(
         UINT32_C(0x12345678);
 
     Stm32MotionSession session;
+
+    const auto start =
+    session.begin_start_session(
+        motion_session_id);
+
+    ASSERT_TRUE(start.has_value());
+
+    const MotionResponsePayload start_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame start_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            start->sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &start_payload,
+        start_response.payload);
+
+    ASSERT_TRUE(
+        session.handle_response(
+            start_response).has_value()
+    );
 
     const auto request =
         session.begin_end_session(
@@ -786,6 +900,24 @@ TEST(
 
 TEST(
     Stm32MotionSessionTest,
+    RejectsWheelVelocityWhileStartSessionIsPending)
+{
+    Stm32MotionSession session;
+
+    ASSERT_TRUE(
+        session.begin_start_session(
+            UINT32_C(1234)).has_value()
+    );
+
+    EXPECT_FALSE(
+        session.build_wheel_velocity(
+            100,
+            100).has_value()
+    );
+}
+
+TEST(
+    Stm32MotionSessionTest,
     BuildsWheelVelocityForActiveMotionSession)
 {
     constexpr std::uint32_t motion_session_id =
@@ -873,6 +1005,66 @@ TEST(
     EXPECT_EQ(
         decoded.command.right_velocity_mm_s,
         -200
+    );
+}
+
+TEST(
+    Stm32MotionSessionTest,
+    RejectsWheelVelocityImmediatelyAfterEndSessionBegins)
+{
+    constexpr std::uint32_t motion_session_id =
+        UINT32_C(1234);
+
+    Stm32MotionSession session;
+
+    const auto start =
+        session.begin_start_session(
+            motion_session_id);
+
+    ASSERT_TRUE(start.has_value());
+
+    const MotionResponsePayload start_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame start_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            start->sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &start_payload,
+        start_response.payload);
+
+    ASSERT_TRUE(
+        session.handle_response(
+            start_response).has_value()
+    );
+
+    ASSERT_TRUE(
+        session.begin_end_session(
+            motion_session_id).has_value()
+    );
+
+    EXPECT_FALSE(
+        session.build_wheel_velocity(
+            100,
+            100).has_value()
     );
 }
 
@@ -972,6 +1164,215 @@ TEST(
 
 TEST(
     Stm32MotionSessionTest,
+    FailedEndLeavesNoUsableActiveSession)
+{
+    constexpr std::uint32_t motion_session_id =
+        UINT32_C(1234);
+
+    Stm32MotionSession session;
+
+    const auto start =
+        session.begin_start_session(
+            motion_session_id);
+
+    ASSERT_TRUE(start.has_value());
+
+    const MotionResponsePayload start_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame start_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            start->sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &start_payload,
+        start_response.payload);
+
+    ASSERT_TRUE(
+        session.handle_response(
+            start_response).has_value()
+    );
+
+    const auto end =
+        session.begin_end_session(
+            motion_session_id);
+
+    ASSERT_TRUE(end.has_value());
+
+    const MotionResponsePayload end_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_END_SESSION,
+
+        .motion_session_id =
+            motion_session_id,
+
+        .result =
+            MOTION_RESPONSE_REJECTED_UNSAFE
+    };
+
+    ProtocolFrame end_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            end->sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &end_payload,
+        end_response.payload);
+
+    const auto result =
+        session.handle_response(
+            end_response);
+
+    ASSERT_TRUE(result.has_value());
+
+    EXPECT_EQ(
+        result.value(),
+        MOTION_RESPONSE_REJECTED_UNSAFE
+    );
+
+    EXPECT_FALSE(
+        session.build_wheel_velocity(
+            100,
+            100).has_value()
+    );
+}
+
+TEST(
+    Stm32MotionSessionTest,
+    FailedReplacementStartDoesNotPreserveOldActiveSession)
+{
+    constexpr std::uint32_t first_session_id =
+        UINT32_C(100);
+
+    constexpr std::uint32_t second_session_id =
+        UINT32_C(200);
+
+    Stm32MotionSession session;
+
+    const auto first_start =
+        session.begin_start_session(
+            first_session_id);
+
+    ASSERT_TRUE(first_start.has_value());
+
+    const MotionResponsePayload first_response_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            first_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame first_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            first_start->sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &first_response_payload,
+        first_response.payload);
+
+    ASSERT_TRUE(
+        session.handle_response(
+            first_response).has_value()
+    );
+
+    ASSERT_TRUE(
+        session.build_wheel_velocity(
+            100,
+            100).has_value()
+    );
+
+    const auto replacement_start =
+        session.begin_start_session(
+            second_session_id);
+
+    ASSERT_TRUE(replacement_start.has_value());
+
+    EXPECT_FALSE(
+        session.build_wheel_velocity(
+            100,
+            100).has_value()
+    );
+
+    const MotionResponsePayload replacement_response_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            second_session_id,
+
+        .result =
+            MOTION_RESPONSE_REJECTED_UNSAFE
+    };
+
+    ProtocolFrame replacement_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            replacement_start->sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &replacement_response_payload,
+        replacement_response.payload);
+
+    ASSERT_TRUE(
+        session.handle_response(
+            replacement_response).has_value()
+    );
+
+    EXPECT_FALSE(
+        session.build_wheel_velocity(
+            100,
+            100).has_value()
+    );
+}
+
+TEST(
+    Stm32MotionSessionTest,
     FailedStartDoesNotActivateMotionSession)
 {
     constexpr std::uint32_t motion_session_id =
@@ -1025,6 +1426,71 @@ TEST(
     );
 
     EXPECT_FALSE(
+        session.build_wheel_velocity(
+            100,
+            100).has_value()
+    );
+}
+
+TEST(
+    Stm32MotionSessionTest,
+    RejectsEndForDifferentMotionSession)
+{
+    constexpr std::uint32_t active_session_id =
+        UINT32_C(1234);
+
+    constexpr std::uint32_t wrong_session_id =
+        UINT32_C(5678);
+
+    Stm32MotionSession session;
+
+    const auto start =
+        session.begin_start_session(
+            active_session_id);
+
+    ASSERT_TRUE(start.has_value());
+
+    const MotionResponsePayload start_payload =
+    {
+        .command =
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+
+        .motion_session_id =
+            active_session_id,
+
+        .result =
+            MOTION_RESPONSE_OK
+    };
+
+    ProtocolFrame start_response =
+    {
+        .message_type =
+            PROTOCOL_MESSAGE_TYPE_MOTION_RESPONSE,
+
+        .sequence =
+            start->sequence,
+
+        .payload_length =
+            MOTION_RESPONSE_WIRE_SIZE
+    };
+
+    motion_response_encode(
+        &start_payload,
+        start_response.payload);
+
+    ASSERT_TRUE(
+        session.handle_response(
+            start_response).has_value()
+    );
+
+    EXPECT_FALSE(
+        session.begin_end_session(
+            wrong_session_id).has_value()
+    );
+
+    // Rejecting the wrong END must not disturb
+    // the valid active session.
+    EXPECT_TRUE(
         session.build_wheel_velocity(
             100,
             100).has_value()

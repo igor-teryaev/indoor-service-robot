@@ -10,14 +10,18 @@
 class Stm32MotionSession
 {
 public:
+    enum class State
+    {
+        Inactive,
+        StartPending,
+        Active,
+        EndPending
+    };
+    [[nodiscard]] State state() const;
     [[nodiscard]] std::optional<ProtocolFrame> begin_start_session(std::uint32_t motion_session_id);
-
     [[nodiscard]] std::optional<ProtocolFrame> begin_end_session(std::uint32_t motion_session_id);
-
     [[nodiscard]] bool handle_ack(const ProtocolFrame& frame, std::uint32_t now_ms);
-
     [[nodiscard]] std::optional<MotionResponseResult> handle_response(const ProtocolFrame& frame);
-
     [[nodiscard]] std::optional<ProtocolFrame> retry_pending_transaction() const;
 
     void mark_pending_transmitted(std::uint32_t now_ms);
@@ -50,6 +54,6 @@ private:
 
     std::uint16_t next_wheel_sequence_ = 1U;
 
-    bool motion_active_ = false;
+    State state_ = State::Inactive;
     std::uint32_t active_session_id_ = 0U;
 };
