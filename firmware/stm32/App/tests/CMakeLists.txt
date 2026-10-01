@@ -4,6 +4,7 @@ add_executable(stm32_app_tests
 
 add_executable(motor_driver_drv8833_tests
         motor_driver_drv8833_test.cpp
+        ../Src/motor_driver_drv8833.c
 )
 
 add_executable(motion_watchdog_tests
@@ -38,9 +39,55 @@ add_executable(wheel_velocity_feedforward_tests
         wheel_velocity_feedforward_test.cpp
 )
 
+include(GoogleTest)
+
+target_compile_features(
+        motor_driver_drv8833_tests
+        PRIVATE
+        c_std_99
+        cxx_std_20
+)
+
+target_include_directories(
+        motor_driver_drv8833_tests
+        PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/../Inc
+)
+
+target_link_libraries(
+        motor_driver_drv8833_tests
+        PRIVATE
+        GTest::gtest_main
+)
+
+gtest_discover_tests(motor_driver_drv8833_tests)
+
+
+add_executable(motor_driver_dri0041_tests
+        motor_driver_dri0041_test.cpp
+        ../Src/motor_driver_dri0041.c
+)
+target_compile_features(
+        motor_driver_dri0041_tests
+        PRIVATE
+        c_std_99
+        cxx_std_20
+)
+target_include_directories(
+        motor_driver_dri0041_tests
+        PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/../Inc
+)
+target_link_libraries(
+        motor_driver_dri0041_tests
+        PRIVATE
+        GTest::gtest_main
+)
+
+gtest_discover_tests(motor_driver_dri0041_tests)
+
 set(STM32_APP_TEST_TARGETS
         stm32_app_tests
-        motor_driver_drv8833_tests
         motion_watchdog_tests
         motion_command_guard_tests
         uart_rx_queue_tests
@@ -50,8 +97,6 @@ set(STM32_APP_TEST_TARGETS
         stm32_motion_protocol_manager_tests
         wheel_velocity_feedforward_tests
 )
-
-include(GoogleTest)
 
 foreach(test_target IN LISTS STM32_APP_TEST_TARGETS)
     target_compile_features(

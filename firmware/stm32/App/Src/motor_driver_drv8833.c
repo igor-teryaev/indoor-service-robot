@@ -1,5 +1,5 @@
 #include "motor_driver.h"
-#include "motor_driver_port.h"
+#include "motor_driver_drv8833_port.h"
 
 #include <stddef.h>
 
@@ -40,7 +40,7 @@ static bool drv8833_channel_control(
 
 static bool drv8833_control_from_command(
     const MotorDriverCommand *command,
-    MotorDriverPortControl *control)
+    Drv8833PortControl *control)
 {
     if ((command == NULL) || (control == NULL))
     {
@@ -64,7 +64,7 @@ static bool drv8833_control_from_command(
         return false;
     }
 
-    const MotorDriverPortControl new_control =
+    const Drv8833PortControl new_control =
     {
         .ain1_duty = channel_a.in1_duty,
         .ain2_duty = channel_a.in2_duty,
@@ -77,9 +77,9 @@ static bool drv8833_control_from_command(
     return true;
 }
 
-static MotorDriverPortControl drv8833_brake_control(void)
+static Drv8833PortControl drv8833_brake_control(void)
 {
-    return (MotorDriverPortControl)
+    return (Drv8833PortControl)
     {
         .ain1_duty = MOTOR_DRIVER_COMMAND_MAX,
         .ain2_duty = MOTOR_DRIVER_COMMAND_MAX,
@@ -92,7 +92,7 @@ bool motor_driver_init(void)
 {
     initialized = false;
 
-    if (!motor_driver_port_init())
+    if (!motor_driver_drv8833_port_init())
     {
         return false;
     }
@@ -108,13 +108,13 @@ bool motor_driver_apply(const MotorDriverCommand *command)
         return false;
     }
 
-    MotorDriverPortControl control = {0};
+    Drv8833PortControl control = {0};
     if (!drv8833_control_from_command(command, &control))
     {
         return false;
     }
 
-    if (!motor_driver_port_apply(&control))
+    if (!motor_driver_drv8833_port_apply(&control))
     {
         return false;
     }
@@ -128,8 +128,8 @@ bool motor_driver_stop(void)
         return false;
     }
 
-    const MotorDriverPortControl control = drv8833_brake_control();
-    if (!motor_driver_port_apply(&control))
+    const Drv8833PortControl control = drv8833_brake_control();
+    if (!motor_driver_drv8833_port_apply(&control))
     {
         return false;
     }

@@ -10,7 +10,7 @@ set(STM32_HAL_INCLUDE_DIRS
 )
 
 add_library(stm32_platform STATIC EXCLUDE_FROM_ALL
-        Port/motor_driver_port_stm32.c
+        Port/motor_driver_dri0041_port_stm32.c
         Port/uart_rx_port_stm32.c
         Port/uart_tx_port_stm32.c
 )

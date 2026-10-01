@@ -1,4 +1,4 @@
-#include "motor_driver_port.h"
+#include "motor_driver_drv8833_port.h"
 #include "motor_driver.h"
 
 #include "main.h"
@@ -12,7 +12,7 @@ static uint32_t compare_from_duty(uint16_t duty)
         (uint32_t)MOTOR_DRIVER_COMMAND_MAX;
 }
 
-bool motor_driver_port_init(void)
+bool motor_driver_drv8833_port_init(void)
 {
     port_initialized = false;
 
@@ -52,7 +52,7 @@ bool motor_driver_port_init(void)
         return false;
 }
 
-bool motor_driver_port_apply(const MotorDriverPortControl *control)
+bool motor_driver_drv8833_port_apply(const Drv8833PortControl *control)
 {
     if ((control == NULL) ||
         (!port_initialized) ||

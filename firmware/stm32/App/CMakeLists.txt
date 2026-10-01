@@ -1,6 +1,6 @@
 add_library(stm32_app STATIC
         Src/motion_stop.c
-        Src/motor_driver_drv8833.c
+        Src/motor_driver_dri0041.c
         Src/motion_watchdog.c
         Src/motion_command_guard.c
         Src/uart_rx_queue.c

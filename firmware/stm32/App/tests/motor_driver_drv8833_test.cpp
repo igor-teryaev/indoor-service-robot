@@ -3,7 +3,7 @@
 extern "C"
 {
 #include "motor_driver.h"
-#include "motor_driver_port.h"
+#include "motor_driver_drv8833_port.h"
 }
 
 namespace
@@ -14,17 +14,17 @@ namespace
     bool motor_driver_port_apply_result = true;
     uint32_t motor_driver_port_apply_count = 0U;
 
-    MotorDriverPortControl motor_driver_port_control = {0};
+    Drv8833PortControl motor_driver_port_control = {0};
 }
 
 
-extern "C" bool motor_driver_port_init(void)
+extern "C" bool motor_driver_drv8833_port_init(void)
 {
     motor_driver_port_init_count++;
     return motor_driver_port_init_result;
 }
 
-extern "C" bool motor_driver_port_apply(const MotorDriverPortControl *control)
+extern "C" bool motor_driver_drv8833_port_apply(const Drv8833PortControl *control)
 {
     ++motor_driver_port_apply_count;
     motor_driver_port_control = *control;
