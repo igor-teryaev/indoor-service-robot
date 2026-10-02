@@ -38,6 +38,7 @@ int main(
         << "STM32 synchronized"
         << std::endl;
 
+
     const WheelVelocityCommand command =
     {
         .left_velocity_mm_s = 1,
@@ -45,18 +46,57 @@ int main(
     };
 
     std::cout
-        << "Sending one low-power LEFT wheel demand"
+        << "Refreshing low-power LEFT wheel demand for 1 second"
+        << std::endl;
+
+    const auto motion_deadline =
+        std::chrono::steady_clock::now() +
+        std::chrono::seconds(1);
+
+    auto next_command_refresh =
+        std::chrono::steady_clock::now();
+
+    while (std::chrono::steady_clock::now() <
+           motion_deadline)
+    {
+        const auto now =
+            std::chrono::steady_clock::now();
+
+        if (now >= next_command_refresh)
+        {
+            runner.set_wheel_command(
+                command);
+
+            next_command_refresh =
+                now +
+                std::chrono::milliseconds(100);
+        }
+
+        runner.poll();
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(10));
+    }
+
+    const WheelVelocityCommand zero_command =
+    {
+        .left_velocity_mm_s = 0,
+        .right_velocity_mm_s = 0
+    };
+
+    std::cout
+        << "Sending explicit zero command"
         << std::endl;
 
     runner.set_wheel_command(
-        command);
+        zero_command);
 
-    const auto probe_deadline =
+    const auto stop_deadline =
         std::chrono::steady_clock::now() +
-        std::chrono::milliseconds(600);
+        std::chrono::milliseconds(500);
 
     while (std::chrono::steady_clock::now() <
-           probe_deadline)
+           stop_deadline)
     {
         runner.poll();
 
