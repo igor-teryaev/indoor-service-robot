@@ -41,7 +41,7 @@ int main(
 
     const WheelVelocityCommand command =
     {
-        .left_velocity_mm_s = 84,
+        .left_velocity_mm_s = 42,
         .right_velocity_mm_s = 0
     };
 
