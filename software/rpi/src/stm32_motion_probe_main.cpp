@@ -39,9 +39,15 @@ int main(
         << std::endl;
 
 
-    const WheelVelocityCommand command =
+    const WheelVelocityCommand start_command =
     {
-        .left_velocity_mm_s = 32,
+        .left_velocity_mm_s = 42,   // ~15% PWM
+        .right_velocity_mm_s = 0
+    };
+
+    const WheelVelocityCommand sustain_command =
+    {
+        .left_velocity_mm_s = 21,   // ~10% PWM
         .right_velocity_mm_s = 0
     };
 
@@ -49,34 +55,56 @@ int main(
         << "Refreshing low-power LEFT wheel demand for 1 second"
         << std::endl;
 
-    const auto motion_deadline =
-        std::chrono::steady_clock::now() +
-        std::chrono::seconds(1);
+    const auto startup_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
 
-    auto next_command_refresh =
-        std::chrono::steady_clock::now();
+    auto next_command_refresh = std::chrono::steady_clock::now();
 
-    while (std::chrono::steady_clock::now() <
-           motion_deadline)
+    while (std::chrono::steady_clock::now() <  startup_deadline)
     {
         const auto now =
             std::chrono::steady_clock::now();
 
         if (now >= next_command_refresh)
         {
-            runner.set_wheel_command(
-                command);
+            runner.set_wheel_command(start_command);
 
-            next_command_refresh =
-                now +
-                std::chrono::milliseconds(100);
+            next_command_refresh = now + std::chrono::milliseconds(100);
         }
 
         runner.poll();
 
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+
+
+    const auto sustain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+
+    next_command_refresh = std::chrono::steady_clock::now();
+
+    while (std::chrono::steady_clock::now() <  sustain_deadline)
+    {
+        const auto now =
+            std::chrono::steady_clock::now();
+
+        if (now >= next_command_refresh)
+        {
+            runner.set_wheel_command(sustain_command);
+
+            next_command_refresh = now + std::chrono::milliseconds(100);
+        }
+
+        runner.poll();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+
+
+
+
+
+
+
 
     const WheelVelocityCommand zero_command =
     {
