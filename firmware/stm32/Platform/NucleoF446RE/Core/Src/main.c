@@ -43,8 +43,8 @@
 #define MOTION_COMMAND_TIMEOUT_MS 250U
 #define LINK_HEARTBEAT_TIMEOUT_MS 1000U
 /* ARC101 open-loop calibration; this is not closed-loop velocity control. */
-#define ARC101_OPEN_LOOP_FULL_SCALE_MM_S 400U
-#define ARC101_MINIMUM_START_COMMAND 800U
+#define ROWENTA_BRINGUP_OPEN_LOOP_FULL_SCALE_MM_S 400U
+#define ROWENTA_BRINGUP_MINIMUM_START_COMMAND 50U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -124,10 +124,10 @@ int main(void)
   const WheelVelocityFeedforwardConfig feedforward_config =
   {
     .max_velocity_mm_s =
-        ARC101_OPEN_LOOP_FULL_SCALE_MM_S,
+        ROWENTA_BRINGUP_OPEN_LOOP_FULL_SCALE_MM_S ,
 
     .minimum_start_command =
-        ARC101_MINIMUM_START_COMMAND
+      ROWENTA_BRINGUP_MINIMUM_START_COMMAND
   };
 
   if (!stm32_motion_protocol_manager_init(
