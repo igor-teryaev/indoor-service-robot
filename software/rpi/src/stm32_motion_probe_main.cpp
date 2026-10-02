@@ -47,7 +47,7 @@ int main(
 
     const WheelVelocityCommand sustain_command =
     {
-        .left_velocity_mm_s = 21,   // ~10% PWM
+        .left_velocity_mm_s = 11,   // ~7.5% PWM
         .right_velocity_mm_s = 0
     };
 
