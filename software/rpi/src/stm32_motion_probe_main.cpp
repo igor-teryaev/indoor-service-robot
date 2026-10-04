@@ -42,12 +42,17 @@ int main(
     const WheelVelocityCommand start_command =
     {
         .left_velocity_mm_s = 42,   // ~15% PWM
-        .right_velocity_mm_s = 0
+        .right_velocity_mm_s = 42
     };
 
     const WheelVelocityCommand sustain_command =
     {
-        .left_velocity_mm_s = 11,   // ~7.5% PWM
+        .left_velocity_mm_s = 21,   // ~7.5% PWM
+        .right_velocity_mm_s = 0
+    };
+
+    const WheelVelocityCommand stop_command = {
+        .left_velocity_mm_s = 0,
         .right_velocity_mm_s = 0
     };
 
@@ -99,25 +104,12 @@ int main(
     }
 
 
-
-
-
-
-
-
-
-    const WheelVelocityCommand zero_command =
-    {
-        .left_velocity_mm_s = 0,
-        .right_velocity_mm_s = 0
-    };
-
     std::cout
         << "Sending explicit zero command"
         << std::endl;
 
     runner.set_wheel_command(
-        zero_command);
+        stop_command);
 
     const auto stop_deadline =
         std::chrono::steady_clock::now() +
