@@ -113,7 +113,7 @@ int main(
 
     const auto stop_deadline =
         std::chrono::steady_clock::now() +
-        std::chrono::milliseconds(500);
+        std::chrono::milliseconds(2000);
 
     while (std::chrono::steady_clock::now() <
            stop_deadline)
