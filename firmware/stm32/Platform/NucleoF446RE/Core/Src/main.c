@@ -31,6 +31,7 @@
 #include "uart_link_manager.h"
 #include "stm32_motion_protocol_manager.h"
 #include "protocol_message_type.h"
+#include "wheel_encoder.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -113,10 +114,17 @@ int main(void)
   MX_DMA_Init();
   MX_TIM8_Init();
   MX_USART2_UART_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
   if (!motion_command_guard_init(
           MOTION_COMMAND_TIMEOUT_MS))
+  {
+    Error_Handler();
+  }
+
+  if (!wheel_encoder_init())
   {
     Error_Handler();
   }

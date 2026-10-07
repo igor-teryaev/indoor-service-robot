@@ -8,6 +8,7 @@ add_library(stm32_app STATIC
         Src/uart_protocol_transmitter.c
         Src/uart_link_manager.c
         Src/stm32_motion_protocol_manager.c
+        Src/wheel_encoder.c
         Src/wheel_velocity_feedforward.c
 )
 

@@ -13,6 +13,7 @@ add_library(stm32_platform STATIC EXCLUDE_FROM_ALL
         Port/motor_driver_dri0041_port_stm32.c
         Port/uart_rx_port_stm32.c
         Port/uart_tx_port_stm32.c
+        Port/wheel_encoder_port_stm32.c
 )
 
 # Keep CubeMX main.c in CLion's host code model without compiling HAL firmware.

@@ -13,6 +13,7 @@ extern "C"
 #include "stm32_motion_protocol_manager.h"
 #include "uart_protocol_transmitter.h"
 #include "wheel_velocity_payload_codec.h"
+#include "motion_stop.h"
 }
 
 namespace
@@ -25,8 +26,17 @@ namespace
     MotorDriverCommand applied_command = {};
     uint32_t applied_now_ms = 0U;
 
-    MotionCommandGuardUpdate guard_update_result =
-        MOTION_COMMAND_GUARD_UPDATE_NONE;
+    MotionCommandGuardUpdate guard_update_result = MOTION_COMMAND_GUARD_UPDATE_NONE;
+    bool motion_stop_begin_result = true;
+    uint32_t motion_stop_begin_call_count = 0U;
+    uint32_t motion_stop_begin_operation_id = 0U;
+    uint32_t motion_stop_begin_now_ms = 0U;
+
+    MotionStopCompletion motion_stop_completion = {};
+    uint32_t motion_stop_update_call_count = 0U;
+    uint32_t motion_stop_update_now_ms = 0U;
+
+    uint32_t motion_stop_cancel_call_count = 0U;
 
     bool transmit_result = true;
     uint32_t transmit_call_count = 0U;
@@ -135,6 +145,31 @@ extern "C" bool motion_command_guard_apply(
     return apply_result;
 }
 
+extern "C" bool motion_stop_begin(
+    uint32_t operation_id,
+    uint32_t now_ms)
+{
+    ++motion_stop_begin_call_count;
+    motion_stop_begin_operation_id = operation_id;
+    motion_stop_begin_now_ms = now_ms;
+
+    return motion_stop_begin_result;
+}
+
+extern "C" MotionStopCompletion motion_stop_update(
+    uint32_t now_ms)
+{
+    ++motion_stop_update_call_count;
+    motion_stop_update_now_ms = now_ms;
+
+    return motion_stop_completion;
+}
+
+extern "C" void motion_stop_cancel(void)
+{
+    ++motion_stop_cancel_call_count;
+}
+
 class Stm32MotionProtocolManagerTest
     : public ::testing::Test
 {
@@ -154,6 +189,17 @@ protected:
         guard_update_result =
             MOTION_COMMAND_GUARD_UPDATE_NONE;
 
+        motion_stop_begin_result = true;
+        motion_stop_begin_call_count = 0U;
+        motion_stop_begin_operation_id = 0U;
+        motion_stop_begin_now_ms = 0U;
+
+        motion_stop_completion = {};
+        motion_stop_update_call_count = 0U;
+        motion_stop_update_now_ms = 0U;
+
+        motion_stop_cancel_call_count = 0U;
+
         transmit_result = true;
         transmit_call_count = 0U;
         transmitted_frames = {};
@@ -168,11 +214,56 @@ protected:
                 &manager,
                 &FEEDFORWARD_CONFIG));
     }
+
+    void StartActiveSession(
+    uint16_t sequence,
+    uint32_t session_id,
+    uint32_t now_ms = 100U)
+    {
+        const ProtocolFrame frame =
+            make_motion_command_frame(
+                sequence,
+                MOTION_LIFECYCLE_COMMAND_START_SESSION,
+                session_id);
+
+        ASSERT_EQ(
+            stm32_motion_protocol_manager_handle(
+                &manager,
+                &frame,
+                true,
+                now_ms),
+            STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING);
+
+        ASSERT_NE(
+            manager.pending_stop_operation_id,
+            0U);
+
+        motion_stop_completion =
+        {
+            .completed = true,
+            .operation_id = manager.pending_stop_operation_id,
+            .result = MOTION_STOP_RESULT_SUCCESS
+        };
+
+        ASSERT_EQ(
+            stm32_motion_protocol_manager_update(
+                &manager,
+                now_ms + 200U),
+            STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
+
+        ASSERT_EQ(
+            manager.coordinator.state,
+            MOTION_LIFECYCLE_STATE_ACTIVE);
+
+        ASSERT_EQ(
+            manager.coordinator.motion_session_id,
+            session_id);
+
+        motion_stop_completion = {};
+    }
 };
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    StartsSessionAfterSuccessfulStop)
+TEST_F(Stm32MotionProtocolManagerTest, StartsSessionAfterSuccessfulStop)
 {
     constexpr uint16_t sequence = 42U;
     constexpr uint32_t session_id = 123U;
@@ -192,25 +283,26 @@ TEST_F(
 
     EXPECT_EQ(
         result,
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING);
 
     EXPECT_EQ(stop_call_count, 1U);
 
+    EXPECT_EQ(motion_stop_begin_call_count, 1U);
+    EXPECT_EQ(motion_stop_begin_now_ms, 100U);
+    EXPECT_EQ(
+        motion_stop_begin_operation_id,
+        manager.pending_stop_operation_id);
+
     EXPECT_EQ(
         manager.coordinator.state,
-        MOTION_LIFECYCLE_STATE_ACTIVE);
+        MOTION_LIFECYCLE_STATE_STARTING);
 
-    EXPECT_EQ(
-        manager.coordinator.motion_session_id,
-        session_id);
-
-    ASSERT_EQ(transmit_call_count, 2U);
+    ASSERT_EQ(transmit_call_count, 1U);
 
     /*
      * First frame: ACK.
      */
-    const ProtocolFrame &ack_frame =
-        transmitted_frames[0];
+    const ProtocolFrame &ack_frame = transmitted_frames[0];
 
     EXPECT_EQ(
         ack_frame.message_type,
@@ -233,6 +325,35 @@ TEST_F(
     EXPECT_EQ(
         ack_payload.status,
         MOTION_ACK_ACCEPTED);
+
+    /*simulate physical stop*/
+    motion_stop_completion =
+    {
+        .completed = true,
+        .operation_id = manager.pending_stop_operation_id,
+        .result = MOTION_STOP_RESULT_SUCCESS
+    };
+
+    const Stm32MotionProtocolManagerResult update_result =
+        stm32_motion_protocol_manager_update(
+            &manager,
+            300U);
+
+    EXPECT_EQ(
+        update_result,
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
+
+    EXPECT_EQ(
+        manager.coordinator.state,
+        MOTION_LIFECYCLE_STATE_ACTIVE);
+
+    EXPECT_EQ(
+        manager.coordinator.motion_session_id,
+        session_id);
+
+    EXPECT_EQ(manager.pending_stop_operation_id, 0U);
+
+    ASSERT_EQ(transmit_call_count, 2U);
 
     /*
      * Second frame: terminal response.
@@ -271,9 +392,7 @@ TEST_F(
         MOTION_RESPONSE_OK);
 }
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    KeepsSessionStartingUntilPendingStopCompletes)
+TEST_F(Stm32MotionProtocolManagerTest, KeepsSessionStartingUntilPendingStopCompletes)
 {
     constexpr uint16_t sequence = 43U;
     constexpr uint32_t session_id = 456U;
@@ -344,19 +463,33 @@ TEST_F(
 
     EXPECT_EQ(
         update_result,
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING);
 
-    EXPECT_EQ(
-        manager.pending_stop_operation_id,
-        0U);
-
+    EXPECT_NE(manager.pending_stop_operation_id, 0U);
     EXPECT_EQ(
         manager.coordinator.state,
-        MOTION_LIFECYCLE_STATE_ACTIVE);
+        MOTION_LIFECYCLE_STATE_STARTING);
+
+    EXPECT_EQ(motion_stop_begin_call_count, 1U);
+
+    guard_update_result =
+    MOTION_COMMAND_GUARD_UPDATE_NONE;
+
+    motion_stop_completion =
+    {
+        .completed = true,
+        .operation_id = manager.pending_stop_operation_id,
+        .result = MOTION_STOP_RESULT_SUCCESS
+    };
+
+    const Stm32MotionProtocolManagerResult completion_result =
+    stm32_motion_protocol_manager_update(
+        &manager,
+        301U);
 
     EXPECT_EQ(
-        manager.coordinator.motion_session_id,
-        session_id);
+        completion_result,
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
 
     /*
      * Now the terminal response should appear.
@@ -393,33 +526,13 @@ TEST_F(
         MOTION_RESPONSE_OK);
 }
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    ResetClearsActiveSession)
+TEST_F(Stm32MotionProtocolManagerTest, ResetClearsActiveSession)
 {
     constexpr uint16_t sequence = 44U;
     constexpr uint32_t session_id = 789U;
 
-    const ProtocolFrame frame =
-        make_motion_command_frame(
-            sequence,
-            MOTION_LIFECYCLE_COMMAND_START_SESSION,
-            session_id);
-
-    ASSERT_EQ(
-        stm32_motion_protocol_manager_handle(
-            &manager,
-            &frame,
-            true,
-            100U),
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
-
-    ASSERT_EQ(
-        manager.coordinator.state,
-        MOTION_LIFECYCLE_STATE_ACTIVE);
-
-    ASSERT_EQ(
-        manager.coordinator.motion_session_id,
+    StartActiveSession(
+        sequence,
         session_id);
 
     stm32_motion_protocol_manager_reset(
@@ -436,6 +549,10 @@ TEST_F(
     EXPECT_EQ(
         manager.pending_stop_operation_id,
         0U);
+
+    EXPECT_EQ(
+        motion_stop_cancel_call_count,
+        1U);
 }
 
 TEST_F(
@@ -478,9 +595,7 @@ TEST_F(
         0U);
 }
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    RejectsEndForMismatchedSession)
+TEST_F(Stm32MotionProtocolManagerTest, RejectsEndForMismatchedSession)
 {
     constexpr uint16_t start_sequence = 50U;
     constexpr uint16_t end_sequence = 51U;
@@ -488,26 +603,8 @@ TEST_F(
     constexpr uint32_t active_session_id = 1000U;
     constexpr uint32_t wrong_session_id = 2000U;
 
-    const ProtocolFrame start_frame =
-        make_motion_command_frame(
-            start_sequence,
-            MOTION_LIFECYCLE_COMMAND_START_SESSION,
-            active_session_id);
-
-    ASSERT_EQ(
-        stm32_motion_protocol_manager_handle(
-            &manager,
-            &start_frame,
-            true,
-            100U),
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
-
-    ASSERT_EQ(
-        manager.coordinator.state,
-        MOTION_LIFECYCLE_STATE_ACTIVE);
-
-    ASSERT_EQ(
-        manager.coordinator.motion_session_id,
+    StartActiveSession(
+        start_sequence,
         active_session_id);
 
     /*
@@ -516,6 +613,7 @@ TEST_F(
     transmit_call_count = 0U;
     transmitted_frames = {};
     stop_call_count = 0U;
+    motion_stop_begin_call_count = 0U;
 
     const ProtocolFrame end_frame =
         make_motion_command_frame(
@@ -538,6 +636,7 @@ TEST_F(
      * Wrong-session END must not stop the active session.
      */
     EXPECT_EQ(stop_call_count, 0U);
+    EXPECT_EQ(motion_stop_begin_call_count, 0U);
 
     EXPECT_EQ(
         manager.coordinator.state,
@@ -602,6 +701,12 @@ TEST_F(
     constexpr uint16_t end_sequence = 61U;
     constexpr uint32_t session_id = 3000U;
 
+    /*
+     * First establish an active session.
+     *
+     * START now remains pending until the encoder-based
+     * physical-stop verification completes.
+     */
     const ProtocolFrame start_frame =
         make_motion_command_frame(
             start_sequence,
@@ -614,18 +719,46 @@ TEST_F(
             &start_frame,
             true,
             100U),
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING);
+
+    ASSERT_NE(
+        manager.pending_stop_operation_id,
+        0U);
+
+    motion_stop_completion =
+    {
+        .completed = true,
+        .operation_id = manager.pending_stop_operation_id,
+        .result = MOTION_STOP_RESULT_SUCCESS
+    };
+
+    ASSERT_EQ(
+        stm32_motion_protocol_manager_update(
+            &manager,
+            300U),
         STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
 
     ASSERT_EQ(
         manager.coordinator.state,
         MOTION_LIFECYCLE_STATE_ACTIVE);
 
+    ASSERT_EQ(
+        manager.coordinator.motion_session_id,
+        session_id);
+
     /*
-     * Ignore START traffic.
+     * Ignore START traffic and mock state.
      */
     transmit_call_count = 0U;
     transmitted_frames = {};
     stop_call_count = 0U;
+
+    motion_stop_begin_call_count = 0U;
+    motion_stop_begin_operation_id = 0U;
+    motion_stop_begin_now_ms = 0U;
+    motion_stop_completion = {};
+    motion_stop_update_call_count = 0U;
+    motion_stop_update_now_ms = 0U;
 
     const ProtocolFrame end_frame =
         make_motion_command_frame(
@@ -638,13 +771,63 @@ TEST_F(
             &manager,
             &end_frame,
             true,
-            200U);
+            400U);
 
     EXPECT_EQ(
         result,
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING);
 
     EXPECT_EQ(stop_call_count, 1U);
+
+    EXPECT_EQ(
+        motion_stop_begin_call_count,
+        1U);
+
+    EXPECT_EQ(
+        motion_stop_begin_now_ms,
+        400U);
+
+    EXPECT_NE(
+        manager.pending_stop_operation_id,
+        0U);
+
+    EXPECT_EQ(
+        motion_stop_begin_operation_id,
+        manager.pending_stop_operation_id);
+
+    /*
+     * END has only been accepted so far.
+     * Physical stop is still being verified.
+     */
+    ASSERT_EQ(transmit_call_count, 1U);
+
+    EXPECT_EQ(
+        transmitted_frames[0].message_type,
+        PROTOCOL_MESSAGE_TYPE_MOTION_ACK);
+
+    EXPECT_EQ(
+        transmitted_frames[0].sequence,
+        end_sequence);
+
+    /*
+     * Encoder verification now confirms that both wheels
+     * have physically stopped.
+     */
+    motion_stop_completion =
+    {
+        .completed = true,
+        .operation_id = manager.pending_stop_operation_id,
+        .result = MOTION_STOP_RESULT_SUCCESS
+    };
+
+    const Stm32MotionProtocolManagerResult update_result =
+        stm32_motion_protocol_manager_update(
+            &manager,
+            600U);
+
+    EXPECT_EQ(
+        update_result,
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
 
     EXPECT_EQ(
         manager.coordinator.state,
@@ -704,29 +887,11 @@ TEST_F(
         MOTION_RESPONSE_OK);
 }
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    AppliesWheelVelocityForActiveMatchingSession)
+TEST_F(Stm32MotionProtocolManagerTest, AppliesWheelVelocityForActiveMatchingSession)
 {
     constexpr uint32_t session_id = 123U;
 
-    const ProtocolFrame start_frame =
-        make_motion_command_frame(
-            70U,
-            MOTION_LIFECYCLE_COMMAND_START_SESSION,
-            session_id);
-
-    ASSERT_EQ(
-        stm32_motion_protocol_manager_handle(
-            &manager,
-            &start_frame,
-            true,
-            100U),
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
-
-    ASSERT_EQ(
-        manager.coordinator.state,
-        MOTION_LIFECYCLE_STATE_ACTIVE);
+    StartActiveSession(70U, session_id);
 
     /*
      * Ignore lifecycle traffic from START_SESSION.
@@ -770,30 +935,12 @@ TEST_F(
     EXPECT_EQ(applied_now_ms, 500U);
 }
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    RejectsWheelVelocityForMismatchedSession)
+TEST_F(Stm32MotionProtocolManagerTest, RejectsWheelVelocityForMismatchedSession)
 {
     constexpr uint32_t active_session_id = 123U;
     constexpr uint32_t wrong_session_id = 999U;
 
-    const ProtocolFrame start_frame =
-        make_motion_command_frame(
-            80U,
-            MOTION_LIFECYCLE_COMMAND_START_SESSION,
-            active_session_id);
-
-    ASSERT_EQ(
-        stm32_motion_protocol_manager_handle(
-            &manager,
-            &start_frame,
-            true,
-            100U),
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
-
-    ASSERT_EQ(
-        manager.coordinator.state,
-        MOTION_LIFECYCLE_STATE_ACTIVE);
+    StartActiveSession(80U, active_session_id);
 
     apply_call_count = 0U;
     applied_command = {};
@@ -898,29 +1045,11 @@ TEST_F(
         0U);
 }
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    ReportsApplyFailureForValidWheelVelocity)
+TEST_F(Stm32MotionProtocolManagerTest, ReportsApplyFailureForValidWheelVelocity)
 {
     constexpr uint32_t session_id = 123U;
 
-    const ProtocolFrame start_frame =
-        make_motion_command_frame(
-            110U,
-            MOTION_LIFECYCLE_COMMAND_START_SESSION,
-            session_id);
-
-    ASSERT_EQ(
-        stm32_motion_protocol_manager_handle(
-            &manager,
-            &start_frame,
-            true,
-            100U),
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
-
-    ASSERT_EQ(
-        manager.coordinator.state,
-        MOTION_LIFECYCLE_STATE_ACTIVE);
+    StartActiveSession(110U, session_id);
 
     apply_call_count = 0U;
     applied_command = {};
@@ -966,29 +1095,11 @@ TEST_F(
         session_id);
 }
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    WatchdogStopDoesNotEndActiveSession)
+TEST_F(Stm32MotionProtocolManagerTest, WatchdogStopDoesNotEndActiveSession)
 {
     constexpr uint32_t session_id = 123U;
 
-    const ProtocolFrame start_frame =
-        make_motion_command_frame(
-            120U,
-            MOTION_LIFECYCLE_COMMAND_START_SESSION,
-            session_id);
-
-    ASSERT_EQ(
-        stm32_motion_protocol_manager_handle(
-            &manager,
-            &start_frame,
-            true,
-            100U),
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
-
-    ASSERT_EQ(
-        manager.coordinator.state,
-        MOTION_LIFECYCLE_STATE_ACTIVE);
+    StartActiveSession(120U, session_id);
 
     /*
      * No lifecycle ENSURE_STOPPED operation is pending.
@@ -1003,7 +1114,7 @@ TEST_F(
      */
     guard_update_result =
         MOTION_COMMAND_GUARD_UPDATE_STOPPED;
-
+    motion_stop_begin_call_count = 0U;
     const Stm32MotionProtocolManagerResult result =
         stm32_motion_protocol_manager_update(
             &manager,
@@ -1028,29 +1139,19 @@ TEST_F(
     EXPECT_EQ(
         manager.pending_stop_operation_id,
         0U);
+
+    EXPECT_EQ(motion_stop_begin_call_count, 0U);
 }
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    FailedReinitializationClearsActiveSession)
+TEST_F(Stm32MotionProtocolManagerTest, FailedReinitializationClearsActiveSession)
 {
     const ProtocolFrame start_frame =
-        make_motion_command_frame(
-            130U,
-            MOTION_LIFECYCLE_COMMAND_START_SESSION,
-            123U);
+    make_motion_command_frame(
+        130U,
+        MOTION_LIFECYCLE_COMMAND_START_SESSION,
+        123U);
 
-    ASSERT_EQ(
-        stm32_motion_protocol_manager_handle(
-            &manager,
-            &start_frame,
-            true,
-            100U),
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
-
-    ASSERT_EQ(
-        manager.coordinator.state,
-        MOTION_LIFECYCLE_STATE_ACTIVE);
+    StartActiveSession(130U, 123U);
 
     constexpr WheelVelocityFeedforwardConfig invalid_config =
     {
@@ -1100,7 +1201,43 @@ TEST_F(
         STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED);
 
     EXPECT_EQ(stop_call_count, 1U);
+
+    /*
+     * START only has an ACK at this point.
+     * The terminal response must wait for physical-stop
+     * verification.
+     */
+    EXPECT_EQ(transmit_call_count, 1U);
+
+    ASSERT_NE(
+        manager.pending_stop_operation_id,
+        0U);
+
+    motion_stop_completion =
+    {
+        .completed = true,
+        .operation_id = manager.pending_stop_operation_id,
+        .result = MOTION_STOP_RESULT_SUCCESS
+    };
+
+    EXPECT_EQ(
+        stm32_motion_protocol_manager_update(
+            &manager,
+            300U),
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED);
+
+    /*
+     * Second failed transmission is the terminal response.
+     */
     EXPECT_EQ(transmit_call_count, 2U);
+
+    EXPECT_EQ(
+        manager.coordinator.state,
+        MOTION_LIFECYCLE_STATE_ACTIVE);
+
+    EXPECT_EQ(
+        manager.pending_stop_operation_id,
+        0U);
 }
 
 TEST_F(

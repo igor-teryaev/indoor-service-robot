@@ -4,6 +4,7 @@
 
 #include "motion_command_guard.h"
 #include "motion_command_frames.h"
+#include "motion_stop.h"
 #include "motion_lifecycle_command_codec.h"
 #include "protocol_ingress_router.h"
 #include "uart_protocol_transmitter.h"
@@ -11,7 +12,8 @@
 
 static Stm32MotionProtocolManagerResult process_action(
     Stm32MotionProtocolManager *manager,
-    const MotionLifecycleAction *action)
+    const MotionLifecycleAction *action,
+    uint32_t now_ms)
 {
     bool transmit_failed = false;
     const MotionCommandFrames frames =
@@ -36,20 +38,38 @@ static Stm32MotionProtocolManagerResult process_action(
     }
 
     if (action->operation ==
-        MOTION_LIFECYCLE_OPERATION_ENSURE_STOPPED)
+    MOTION_LIFECYCLE_OPERATION_ENSURE_STOPPED)
     {
-        if (motion_command_guard_stop())
+        if (!motion_command_guard_stop())
+        {
+            manager->pending_stop_operation_id =
+                action->operation_id;
+
+            if (transmit_failed)
+            {
+                return
+                    STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED;
+            }
+
+            return
+                STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING;
+        }
+
+        if (!motion_stop_begin(
+                action->operation_id,
+                now_ms))
         {
             const MotionLifecycleAction completion_action =
                 motion_lifecycle_coordinator_complete_operation(
                     &manager->coordinator,
                     action->operation_id,
-                    MOTION_LIFECYCLE_OPERATION_RESULT_SUCCESS);
+                    MOTION_LIFECYCLE_OPERATION_RESULT_FAILED);
 
             const Stm32MotionProtocolManagerResult completion_result =
                 process_action(
                     manager,
-                    &completion_action);
+                    &completion_action,
+                    now_ms);
 
             if (transmit_failed ||
                 (completion_result ==
@@ -59,7 +79,8 @@ static Stm32MotionProtocolManagerResult process_action(
                     STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED;
             }
 
-            return completion_result;
+            return
+                STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_FAILED;
         }
 
         manager->pending_stop_operation_id =
@@ -122,6 +143,7 @@ void stm32_motion_protocol_manager_reset(
     motion_lifecycle_coordinator_reset(
         &manager->coordinator);
 
+    motion_stop_cancel();
     manager->pending_stop_operation_id = 0U;
 }
 
@@ -178,7 +200,8 @@ Stm32MotionProtocolManagerResult stm32_motion_protocol_manager_handle(
 
         return process_action(
             manager,
-            &action);
+            &action,
+            now_ms);
     }
 
     /*
@@ -241,13 +264,6 @@ Stm32MotionProtocolManagerResult stm32_motion_protocol_manager_update(
         motion_command_guard_update(now_ms);
 
     if (guard_update ==
-        MOTION_COMMAND_GUARD_UPDATE_NONE)
-    {
-        return
-            STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED;
-    }
-
-    if (guard_update ==
         MOTION_COMMAND_GUARD_UPDATE_STOP_FAILED)
     {
         return
@@ -255,13 +271,9 @@ Stm32MotionProtocolManagerResult stm32_motion_protocol_manager_update(
     }
 
     /*
-     * The guard successfully reached its current definition
-     * of "stopped".
-     *
-     * This may be:
-     *   - completion of a lifecycle ENSURE_STOPPED operation;
-     *   - a motion-watchdog stop;
-     *   - completion of a stop requested by another safety path.
+     * No lifecycle ENSURE_STOPPED operation is pending.
+     * A STOPPED result here may belong to the watchdog or
+     * another safety path, so there is nothing to complete.
      */
     if (manager->pending_stop_operation_id == 0U)
     {
@@ -269,18 +281,80 @@ Stm32MotionProtocolManagerResult stm32_motion_protocol_manager_update(
             STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED;
     }
 
-    const uint32_t operation_id =
-        manager->pending_stop_operation_id;
+    /*
+     * If the original stop command failed, the guard retries it.
+     * Once that retry succeeds, begin encoder-based confirmation.
+     */
+    if (guard_update ==
+        MOTION_COMMAND_GUARD_UPDATE_STOPPED)
+    {
+        if (!motion_stop_begin(
+                manager->pending_stop_operation_id,
+                now_ms))
+        {
+            const uint32_t operation_id =
+                manager->pending_stop_operation_id;
+
+            manager->pending_stop_operation_id = 0U;
+
+            const MotionLifecycleAction completion_action =
+                motion_lifecycle_coordinator_complete_operation(
+                    &manager->coordinator,
+                    operation_id,
+                    MOTION_LIFECYCLE_OPERATION_RESULT_FAILED);
+
+            const Stm32MotionProtocolManagerResult completion_result =
+                process_action(
+                    manager,
+                    &completion_action,
+                    now_ms);
+
+            if (completion_result ==
+                STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED)
+            {
+                return completion_result;
+            }
+
+            return
+                STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_FAILED;
+        }
+    }
+
+    const MotionStopCompletion stop_completion =
+        motion_stop_update(now_ms);
+
+    if (!stop_completion.completed)
+    {
+        return
+            STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING;
+    }
 
     manager->pending_stop_operation_id = 0U;
+
+    const MotionLifecycleOperationResult operation_result =
+        (stop_completion.result == MOTION_STOP_RESULT_SUCCESS)
+            ? MOTION_LIFECYCLE_OPERATION_RESULT_SUCCESS
+            : MOTION_LIFECYCLE_OPERATION_RESULT_FAILED;
 
     const MotionLifecycleAction completion_action =
         motion_lifecycle_coordinator_complete_operation(
             &manager->coordinator,
-            operation_id,
-            MOTION_LIFECYCLE_OPERATION_RESULT_SUCCESS);
+            stop_completion.operation_id,
+            operation_result);
 
-    return process_action(
-        manager,
-        &completion_action);
+    const Stm32MotionProtocolManagerResult completion_result =
+        process_action(
+            manager,
+            &completion_action,
+            now_ms);
+
+    if (completion_result ==
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED)
+    {
+        return completion_result;
+    }
+
+    return (stop_completion.result == MOTION_STOP_RESULT_SUCCESS)
+        ? completion_result
+        : STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_FAILED;
 }

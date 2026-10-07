@@ -3,21 +3,12 @@
 extern "C"
 {
 #include "motion_stop.h"
-#include "motor_driver.h"
 #include "wheel_encoder.h"
 }
 
 namespace
 {
-    bool stop_result = true;
-    uint32_t stop_call_count = 0U;
     WheelEncoderCounts encoder_counts{0U, 0U};
-}
-
-extern "C" bool motor_driver_stop(void)
-{
-    ++stop_call_count;
-    return stop_result;
 }
 
 extern "C" WheelEncoderCounts wheel_encoder_read(void)
@@ -31,8 +22,6 @@ protected:
     void SetUp() override
     {
         motion_stop_cancel();
-        stop_result = true;
-        stop_call_count = 0U;
         encoder_counts = {0U, 0U};
     }
 };
@@ -40,7 +29,6 @@ protected:
 TEST_F(MotionStopTest, CompletesOnceAfterContinuousSettleTime)
 {
     ASSERT_TRUE(motion_stop_begin(7U, 100U));
-    EXPECT_EQ(stop_call_count, 1U);
 
     EXPECT_FALSE(motion_stop_update(299U).completed);
 
@@ -72,27 +60,27 @@ TEST_F(MotionStopTest, FailsAtOverallTimeoutAfterLateMovement)
     EXPECT_FALSE(motion_stop_update(1001U).completed);
 }
 
-TEST_F(MotionStopTest, FailedReplacementDoesNotLeavePreviousOperationActive)
+TEST_F(MotionStopTest, NewOperationReplacesPreviousOperation)
 {
-    stop_result = true;
     ASSERT_TRUE(motion_stop_begin(10U, 0U));
 
-    stop_result = false;
-    ASSERT_FALSE(motion_stop_begin(11U, 50U));
+    encoder_counts.left = 1U;
+    ASSERT_TRUE(motion_stop_begin(11U, 50U));
 
-    EXPECT_EQ(stop_call_count, 2U);
-    const MotionStopCompletion completion = motion_stop_update(1000U);
-    EXPECT_FALSE(completion.completed);
-    EXPECT_EQ(completion.operation_id, 0U);
-    EXPECT_EQ(completion.result, MOTION_STOP_RESULT_NONE);
+    EXPECT_FALSE(motion_stop_update(249U).completed);
+
+    const MotionStopCompletion completion =
+        motion_stop_update(250U);
+
+    EXPECT_TRUE(completion.completed);
+    EXPECT_EQ(completion.operation_id, 11U);
+    EXPECT_EQ(completion.result, MOTION_STOP_RESULT_SUCCESS);
 }
 
 TEST_F(MotionStopTest, ZeroOperationIdDoesNotPreemptActiveOperation)
 {
     ASSERT_TRUE(motion_stop_begin(12U, 0U));
     EXPECT_FALSE(motion_stop_begin(0U, 50U));
-
-    EXPECT_EQ(stop_call_count, 1U);
 
     const MotionStopCompletion completion = motion_stop_update(200U);
     EXPECT_TRUE(completion.completed);
@@ -109,7 +97,6 @@ TEST_F(MotionStopTest, CancelSuppressesPendingCompletion)
     EXPECT_FALSE(completion.completed);
     EXPECT_EQ(completion.operation_id, 0U);
     EXPECT_EQ(completion.result, MOTION_STOP_RESULT_NONE);
-    EXPECT_EQ(stop_call_count, 1U);
 }
 
 TEST_F(MotionStopTest, CompletesAcrossTickCounterWraparound)
@@ -122,5 +109,4 @@ TEST_F(MotionStopTest, CompletesAcrossTickCounterWraparound)
     EXPECT_TRUE(completion.completed);
     EXPECT_EQ(completion.operation_id, 14U);
     EXPECT_EQ(completion.result, MOTION_STOP_RESULT_SUCCESS);
-    EXPECT_EQ(stop_call_count, 1U);
 }

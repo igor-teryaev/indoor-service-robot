@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "motor_driver.h"
 #include "wheel_encoder.h"
 
 #define MOTION_STOP_SETTLE_TIME_MS 200U
@@ -28,12 +27,6 @@ bool motion_stop_begin(uint32_t operation_id, uint32_t now_ms)
     }
 
     motion_stop_state = (MotionStopState){0};
-
-    if (!motor_driver_stop())
-    {
-        return false;
-    }
-
     motion_stop_state.operation_id = operation_id;
     motion_stop_state.started_at_ms = now_ms;
     motion_stop_state.last_movement_at_ms = now_ms;
