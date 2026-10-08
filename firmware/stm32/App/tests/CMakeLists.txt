@@ -119,3 +119,29 @@ foreach(test_target IN LISTS STM32_APP_TEST_TARGETS)
 
     gtest_discover_tests(${test_target})
 endforeach()
+
+add_executable(wheel_speed_estimator_tests
+        wheel_speed_estimator_test.cpp
+        ../Src/wheel_speed_estimator.c
+)
+
+target_compile_features(
+        wheel_speed_estimator_tests
+        PRIVATE
+        c_std_99
+        cxx_std_20
+)
+
+target_include_directories(
+        wheel_speed_estimator_tests
+        PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/../Inc
+)
+
+target_link_libraries(
+        wheel_speed_estimator_tests
+        PRIVATE
+        GTest::gtest_main
+)
+
+gtest_discover_tests(wheel_speed_estimator_tests)

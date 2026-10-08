@@ -32,6 +32,7 @@
 #include "stm32_motion_protocol_manager.h"
 #include "protocol_message_type.h"
 #include "wheel_encoder.h"
+#include "wheel_speed_estimator.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +44,8 @@
 /* USER CODE BEGIN PD */
 #define MOTION_COMMAND_TIMEOUT_MS 250U
 #define LINK_HEARTBEAT_TIMEOUT_MS 1000U
-/* ARC101 open-loop calibration; this is not closed-loop velocity control. */
+#define WHEEL_SPEED_SAMPLE_PERIOD_MS 100U
+/* Rowenta provisional open-loop calibration; not closed-loop velocity control. */
 #define ROWENTA_BRINGUP_OPEN_LOOP_FULL_SCALE_MM_S 400U
 #define ROWENTA_BRINGUP_MINIMUM_START_COMMAND 50U
 /* USER CODE END PD */
@@ -59,6 +61,9 @@
 static UartRxQueue uart_rx_queue;
 static UartProtocolReceiver uart_protocol_receiver;
 static Stm32MotionProtocolManager motion_protocol_manager;
+static WheelSpeedEstimator wheel_speed_estimator;
+static volatile WheelSpeedEstimate wheel_speed_estimate;
+static uint32_t last_speed_sample_ms;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -129,6 +134,13 @@ int main(void)
     Error_Handler();
   }
 
+  wheel_speed_estimator_init(&wheel_speed_estimator);
+  last_speed_sample_ms = HAL_GetTick();
+  wheel_speed_estimate = wheel_speed_estimator_update(
+      &wheel_speed_estimator,
+      wheel_encoder_read(),
+      last_speed_sample_ms);
+
   const WheelVelocityFeedforwardConfig feedforward_config =
   {
     .max_velocity_mm_s =
@@ -182,6 +194,16 @@ int main(void)
          STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED))
     {
       reset_link_and_stop_motion();
+    }
+
+    if ((uint32_t)(now_ms - last_speed_sample_ms) >= WHEEL_SPEED_SAMPLE_PERIOD_MS)
+    {
+      wheel_speed_estimate = wheel_speed_estimator_update(
+          &wheel_speed_estimator,
+          wheel_encoder_read(),
+          now_ms);
+
+      last_speed_sample_ms = now_ms;
     }
 
     const ProtocolFrame *frame = NULL;
