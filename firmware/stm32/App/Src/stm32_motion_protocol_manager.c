@@ -40,11 +40,13 @@ static Stm32MotionProtocolManagerResult process_action(
     if (action->operation ==
     MOTION_LIFECYCLE_OPERATION_ENSURE_STOPPED)
     {
+        manager->pending_stop_operation_id =
+            action->operation_id;
+
+        manager->stop_confirmation_started = false;
+
         if (!motion_command_guard_stop())
         {
-            manager->pending_stop_operation_id =
-                action->operation_id;
-
             if (transmit_failed)
             {
                 return
@@ -54,37 +56,6 @@ static Stm32MotionProtocolManagerResult process_action(
             return
                 STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING;
         }
-
-        if (!motion_stop_begin(
-                action->operation_id,
-                now_ms))
-        {
-            const MotionLifecycleAction completion_action =
-                motion_lifecycle_coordinator_complete_operation(
-                    &manager->coordinator,
-                    action->operation_id,
-                    MOTION_LIFECYCLE_OPERATION_RESULT_FAILED);
-
-            const Stm32MotionProtocolManagerResult completion_result =
-                process_action(
-                    manager,
-                    &completion_action,
-                    now_ms);
-
-            if (transmit_failed ||
-                (completion_result ==
-                 STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED))
-            {
-                return
-                    STM32_MOTION_PROTOCOL_MANAGER_RESULT_TRANSMIT_FAILED;
-            }
-
-            return
-                STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_FAILED;
-        }
-
-        manager->pending_stop_operation_id =
-            action->operation_id;
 
         if (transmit_failed)
         {
@@ -144,7 +115,9 @@ void stm32_motion_protocol_manager_reset(
         &manager->coordinator);
 
     motion_stop_cancel();
+
     manager->pending_stop_operation_id = 0U;
+    manager->stop_confirmation_started = false;
 }
 
 Stm32MotionProtocolManagerResult stm32_motion_protocol_manager_handle(
@@ -281,12 +254,7 @@ Stm32MotionProtocolManagerResult stm32_motion_protocol_manager_update(
             STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED;
     }
 
-    /*
-     * If the original stop command failed, the guard retries it.
-     * Once that retry succeeds, begin encoder-based confirmation.
-     */
-    if (guard_update ==
-        MOTION_COMMAND_GUARD_UPDATE_STOPPED)
+    if (!manager->stop_confirmation_started)
     {
         if (!motion_stop_begin(
                 manager->pending_stop_operation_id,
@@ -318,6 +286,8 @@ Stm32MotionProtocolManagerResult stm32_motion_protocol_manager_update(
             return
                 STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_FAILED;
         }
+
+        manager->stop_confirmation_started = true;
     }
 
     const MotionStopCompletion stop_completion =
@@ -330,6 +300,7 @@ Stm32MotionProtocolManagerResult stm32_motion_protocol_manager_update(
     }
 
     manager->pending_stop_operation_id = 0U;
+    manager->stop_confirmation_started = false;
 
     const MotionLifecycleOperationResult operation_result =
         (stop_completion.result == MOTION_STOP_RESULT_SUCCESS)

@@ -287,11 +287,10 @@ TEST_F(Stm32MotionProtocolManagerTest, StartsSessionAfterSuccessfulStop)
 
     EXPECT_EQ(stop_call_count, 1U);
 
-    EXPECT_EQ(motion_stop_begin_call_count, 1U);
-    EXPECT_EQ(motion_stop_begin_now_ms, 100U);
-    EXPECT_EQ(
-        motion_stop_begin_operation_id,
-        manager.pending_stop_operation_id);
+    EXPECT_EQ(motion_stop_begin_call_count, 0U);
+
+    const uint32_t operation_id =
+        manager.pending_stop_operation_id;
 
     EXPECT_EQ(
         manager.coordinator.state,
@@ -330,7 +329,7 @@ TEST_F(Stm32MotionProtocolManagerTest, StartsSessionAfterSuccessfulStop)
     motion_stop_completion =
     {
         .completed = true,
-        .operation_id = manager.pending_stop_operation_id,
+        .operation_id = operation_id,
         .result = MOTION_STOP_RESULT_SUCCESS
     };
 
@@ -339,6 +338,9 @@ TEST_F(Stm32MotionProtocolManagerTest, StartsSessionAfterSuccessfulStop)
             &manager,
             300U);
 
+    EXPECT_EQ(motion_stop_begin_call_count, 1U);
+    EXPECT_EQ(motion_stop_begin_operation_id, operation_id);
+    EXPECT_EQ(motion_stop_begin_now_ms, 300U);
     EXPECT_EQ(
         update_result,
         STM32_MOTION_PROTOCOL_MANAGER_RESULT_PROCESSED);
@@ -693,9 +695,7 @@ TEST_F(Stm32MotionProtocolManagerTest, RejectsEndForMismatchedSession)
         MOTION_RESPONSE_SESSION_MISMATCH);
 }
 
-TEST_F(
-    Stm32MotionProtocolManagerTest,
-    EndsActiveSessionAfterSuccessfulStop)
+TEST_F(Stm32MotionProtocolManagerTest, EndsActiveSessionAfterSuccessfulStop)
 {
     constexpr uint16_t start_sequence = 60U;
     constexpr uint16_t end_sequence = 61U;
@@ -773,27 +773,18 @@ TEST_F(
             true,
             400U);
 
-    EXPECT_EQ(
-        result,
-        STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING);
-
-    EXPECT_EQ(stop_call_count, 1U);
+    EXPECT_EQ(result, STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING);
 
     EXPECT_EQ(
         motion_stop_begin_call_count,
-        1U);
-
-    EXPECT_EQ(
-        motion_stop_begin_now_ms,
-        400U);
+        0U);
 
     EXPECT_NE(
         manager.pending_stop_operation_id,
         0U);
 
-    EXPECT_EQ(
-        motion_stop_begin_operation_id,
-        manager.pending_stop_operation_id);
+    const uint32_t end_operation_id =
+        manager.pending_stop_operation_id;
 
     /*
      * END has only been accepted so far.
@@ -816,7 +807,7 @@ TEST_F(
     motion_stop_completion =
     {
         .completed = true,
-        .operation_id = manager.pending_stop_operation_id,
+        .operation_id = end_operation_id,
         .result = MOTION_STOP_RESULT_SUCCESS
     };
 
@@ -824,6 +815,18 @@ TEST_F(
         stm32_motion_protocol_manager_update(
             &manager,
             600U);
+
+    EXPECT_EQ(
+    motion_stop_begin_call_count,
+    1U);
+
+    EXPECT_EQ(
+        motion_stop_begin_operation_id,
+        end_operation_id);
+
+    EXPECT_EQ(
+        motion_stop_begin_now_ms,
+        600U);
 
     EXPECT_EQ(
         update_result,
@@ -1275,4 +1278,57 @@ TEST_F(
         manager.coordinator.state,
         MOTION_LIFECYCLE_STATE_STARTING);
     EXPECT_NE(manager.pending_stop_operation_id, 0U);
+}
+
+TEST_F(
+    Stm32MotionProtocolManagerTest,
+    StartsPhysicalStopTimingOnUpdateAfterStopCommand)
+{
+    const ProtocolFrame start_frame =
+        make_motion_command_frame(
+            140U,
+            MOTION_LIFECYCLE_COMMAND_START_SESSION,
+            123U);
+
+    ASSERT_EQ(
+        stm32_motion_protocol_manager_handle(
+            &manager,
+            &start_frame,
+            true,
+            100U),
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING);
+
+    ASSERT_NE(
+        manager.pending_stop_operation_id,
+        0U);
+
+    /*
+     * The stop command succeeded during handle(), but
+     * physical-stop timing must not use the earlier
+     * handle timestamp.
+     */
+    EXPECT_EQ(
+        motion_stop_begin_call_count,
+        0U);
+
+    const uint32_t operation_id =
+        manager.pending_stop_operation_id;
+
+    EXPECT_EQ(
+        stm32_motion_protocol_manager_update(
+            &manager,
+            150U),
+        STM32_MOTION_PROTOCOL_MANAGER_RESULT_STOP_PENDING);
+
+    EXPECT_EQ(
+        motion_stop_begin_call_count,
+        1U);
+
+    EXPECT_EQ(
+        motion_stop_begin_operation_id,
+        operation_id);
+
+    EXPECT_EQ(
+        motion_stop_begin_now_ms,
+        150U);
 }

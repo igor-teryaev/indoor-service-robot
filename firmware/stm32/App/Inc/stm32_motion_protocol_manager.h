@@ -34,9 +34,15 @@ typedef struct
 
     /*
      * Non-zero while an ENSURE_STOPPED lifecycle operation
-     * is waiting for motion_command_guard to complete.
+     * is still unresolved.
      */
     uint32_t pending_stop_operation_id;
+
+    /*
+     * True after encoder-based physical-stop confirmation
+     * has started for the pending operation.
+     */
+    bool stop_confirmation_started;
     WheelVelocityFeedforwardConfig feedforward_config;
 } Stm32MotionProtocolManager;
 

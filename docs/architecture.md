@@ -34,21 +34,28 @@ current motion-session ID, and latest application wheel demand.
 
 STM32F446RE responsibilities:
 
-- TIM8 PWM motor control through DRV8833;
+- TIM8 PWM motor control through the DFRobot DRI0041;
 - motion lifecycle coordination;
 - session-aware `WHEEL_VELOCITY` gating;
 - independent 250 ms motion-command watchdog;
 - immediate motor stop on motion timeout, link loss/reset paths, and lifecycle stop;
+- wheel-encoder pulse counting using PA6/TIM3_CH1 for the left wheel and PB6/TIM4_CH1 for the right wheel;
+- encoder-based physical-stop confirmation for lifecycle operations;
 - low-level hardware and sensor integration;
-- future encoder processing and closed-loop wheel-speed control;
+- future measured wheel-speed estimation and closed-loop wheel-speed control;
 - future ELRS/CRSF manual-control integration.
 
-The current ARC101 platform has no encoder sensors installed. Therefore the active
-wheel-velocity path is open-loop feed-forward: a requested wheel velocity is mapped
-to a motor-driver command rather than regulated from measured wheel speed.
+The active drive platform is the Rowenta RR6825WH using the DFRobot DRI0041 motor
+driver. Both optical wheel sensors are connected and counted by STM32 hardware timers.
 
-The intended final drive platform is the Rowenta RR6825WH, where optical feedback
-is expected to support later closed-loop velocity control.
+Current manual calibration gives approximately 1000 encoder counts per wheel revolution
+on both wheels. This is a provisional bring-up calibration rather than a final precision
+measurement.
+
+The active wheel-velocity path is still open-loop feed-forward: requested wheel velocity
+is mapped to a motor-driver command rather than regulated from measured wheel speed.
+Encoder feedback is currently used to confirm physical stop. Measured wheel-speed
+estimation is the next drivetrain milestone, followed later by closed-loop velocity control.
 
 ## Communication
 
@@ -256,16 +263,34 @@ These mechanisms are complementary rather than interchangeable:
 - link heartbeat supervision detects communication failure and drives reconnect;
 - reconnect clears previous demand so old movement cannot be replayed.
 
-Physical stop confirmation using wheel feedback is not yet available on the ARC101
-bring-up platform because encoder sensors are not installed. Current ARC101 stop
-behavior is therefore validated through commanded motor shutdown and observed
-hardware behavior, not measured zero wheel velocity.
+Lifecycle physical-stop completion is now confirmed using wheel feedback.
+
+`motion_command_guard` remains responsible for issuing and retrying the motor stop
+command through the generic motor-driver interface. Once that command succeeds,
+`motion_stop` independently observes the wheel encoders.
+
+A pending physical-stop operation succeeds only after no encoder-count changes are
+observed for 200 ms. A hard 1000 ms overall deadline applies; timeout takes precedence
+over settlement, including when both conditions become true on the same delayed poll.
+
+Physical-stop timing begins on the first manager update after the stop command succeeds,
+rather than using the earlier lifecycle-frame timestamp. This prevents blocking protocol
+transmission or stop-command execution time from being counted as wheel-settling time.
+
+Duplicate lifecycle retries repeat the protocol ACK but do not create a new physical-stop
+operation or restart the original physical-stop deadline. Manager reset cancels any pending
+physical-stop confirmation state.
+
+The wheel sensors are single-channel pulse sensors. Therefore the current encoder path
+observes pulse-count change and movement magnitude, but does not directly measure wheel
+direction. Unchanged counts mean no observed encoder pulses; this is not equivalent to
+independent encoder-health confirmation.
 
 ## Validation checkpoint
 
-At the current Raspberry Pi motion-runtime checkpoint:
+At the current Rowenta drivetrain and physical-stop checkpoint:
 
-- the full WSL CTest suite passes **342/342 tests**;
+- the full WSL CTest suite passes **361/361 tests**;
 - `Stm32MotionSession` has explicit local lifecycle states and rejects wheel traffic
   outside an active matching session;
 - Linux serial frame transmission uses a 100 ms absolute deadline;
@@ -274,20 +299,34 @@ At the current Raspberry Pi motion-runtime checkpoint:
 - Raspberry Pi PTY tests cover synchronization without motion, demand-driven START,
   wheel transmission after successful START, explicit-zero END, stale-command END,
   latest-value-wins behavior, reconnect without demand replay, and active-motion
-  reset/reconnect behavior.
+  reset/reconnect behavior;
+- STM32 tests cover physical-stop deadline precedence, delayed polling, exact timeout
+  boundary behavior, confirmation timing, duplicate retry behavior, and reset during
+  settling;
+- combined STM32 integration tests exercise the real motion manager, command guard,
+  DRI0041 motor driver, `motion_stop`, and wheel-encoder path using fake hardware ports.
 
-Hardware validation on Raspberry Pi 5 + NUCLEO-F446RE + DRV8833 + ARC101 confirmed:
+Hardware validation on Raspberry Pi 5 + NUCLEO-F446RE + DFRobot DRI0041 +
+Rowenta RR6825WH drivetrain confirmed:
 
 - synchronization alone does not move the motors;
-- fresh non-zero wheel demand starts a motion session and physically starts motion;
-- one-shot demand expires and causes motion to stop;
+- fresh non-zero wheel demand starts a motion session and physically starts both wheels;
 - periodically refreshed demand sustains motion;
-- explicit zero demand ends the session and stops the motors;
-- Nucleo RESET during active motion immediately stops the motors;
-- the Raspberry Pi detects the unsynchronized STM32, reconnects, and does not replay
-  the previous wheel demand after resynchronization;
-- heartbeat traffic continues independently from motion lifecycle traffic.
+- explicit zero ends the session and physically stops both wheels;
+- the left and right encoder inputs count independently;
+- provisional encoder calibration is approximately 1000 counts per wheel revolution;
+- START and END lifecycle operations complete successfully after encoder-confirmed
+  physical stop;
+- continued wheel movement during END prevents false stop confirmation and produces
+  terminal `MOTION_RESPONSE_STOP_FAILED` after the physical-stop timeout;
+- lifecycle retries while physical-stop confirmation is pending do not restart the stop
+  operation;
+- reconnect handling does not replay previous motion demand.
 
-The current ARC101 validation does not establish closed-loop wheel-speed accuracy or
-measured physical stop confirmation because encoder sensors are not installed.
-Those properties remain future work for the final drive platform.
+Measured wheel-speed estimation and closed-loop wheel-speed regulation are not yet
+implemented. They remain separate future milestones.
+
+A separate electrical issue remains under investigation: manually back-driving a wheel
+while DRI0041 motor power is connected can disrupt the STM32/Pi link. With DRI0041
+motor power disconnected, encoder counting and UART heartbeat communication remain
+stable.

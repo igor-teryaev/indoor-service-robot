@@ -110,3 +110,39 @@ TEST_F(MotionStopTest, CompletesAcrossTickCounterWraparound)
     EXPECT_EQ(completion.operation_id, 14U);
     EXPECT_EQ(completion.result, MOTION_STOP_RESULT_SUCCESS);
 }
+
+TEST_F(MotionStopTest, FailsWhenSettleWouldCompleteAfterOverallTimeout)
+{
+    ASSERT_TRUE(motion_stop_begin(15U, 0U));
+
+    encoder_counts.left = 1U;
+    EXPECT_FALSE(
+        motion_stop_update(900U).completed);
+
+    const MotionStopCompletion completion =
+        motion_stop_update(1100U);
+
+    EXPECT_TRUE(completion.completed);
+    EXPECT_EQ(completion.operation_id, 15U);
+    EXPECT_EQ(
+        completion.result,
+        MOTION_STOP_RESULT_FAILED);
+}
+
+TEST_F(MotionStopTest, TimeoutWinsWhenSettleAndTimeoutExpireTogether)
+{
+    ASSERT_TRUE(motion_stop_begin(16U, 0U));
+
+    encoder_counts.left = 1U;
+    EXPECT_FALSE(
+        motion_stop_update(800U).completed);
+
+    const MotionStopCompletion completion =
+        motion_stop_update(1000U);
+
+    EXPECT_TRUE(completion.completed);
+    EXPECT_EQ(completion.operation_id, 16U);
+    EXPECT_EQ(
+        completion.result,
+        MOTION_STOP_RESULT_FAILED);
+}

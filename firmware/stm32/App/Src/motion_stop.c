@@ -53,20 +53,28 @@ MotionStopCompletion motion_stop_update(uint32_t now_ms)
         motion_stop_state.last_movement_at_ms = now_ms;
     }
 
-    if ((now_ms - motion_stop_state.last_movement_at_ms) >= MOTION_STOP_SETTLE_TIME_MS)
+    if ((now_ms - motion_stop_state.started_at_ms) >=
+        MOTION_STOP_TIMEOUT_MS)
     {
         completion.completed = true;
-        completion.operation_id = motion_stop_state.operation_id;
-        completion.result = MOTION_STOP_RESULT_SUCCESS;
+        completion.operation_id =
+            motion_stop_state.operation_id;
+        completion.result =
+            MOTION_STOP_RESULT_FAILED;
+
         motion_stop_state.active = false;
         return completion;
     }
 
-    if ((now_ms - motion_stop_state.started_at_ms) >= MOTION_STOP_TIMEOUT_MS)
+    if ((now_ms - motion_stop_state.last_movement_at_ms) >=
+        MOTION_STOP_SETTLE_TIME_MS)
     {
         completion.completed = true;
-        completion.operation_id = motion_stop_state.operation_id;
-        completion.result = MOTION_STOP_RESULT_FAILED;
+        completion.operation_id =
+            motion_stop_state.operation_id;
+        completion.result =
+            MOTION_STOP_RESULT_SUCCESS;
+
         motion_stop_state.active = false;
     }
 

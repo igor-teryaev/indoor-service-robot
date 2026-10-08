@@ -39,6 +39,10 @@ add_executable(wheel_velocity_feedforward_tests
         wheel_velocity_feedforward_test.cpp
 )
 
+add_executable(stm32_motion_stop_integration_tests
+        stm32_motion_stop_integration_test.cpp
+)
+
 include(GoogleTest)
 
 target_compile_features(
@@ -95,6 +99,7 @@ set(STM32_APP_TEST_TARGETS
         uart_protocol_transmitter_tests
         uart_link_manager_tests
         stm32_motion_protocol_manager_tests
+        stm32_motion_stop_integration_tests
         wheel_velocity_feedforward_tests
 )
 
