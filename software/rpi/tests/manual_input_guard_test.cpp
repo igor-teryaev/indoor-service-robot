@@ -168,3 +168,31 @@ TEST(ManualInputGuardTest, InvalidEnableValueRequiresRearming)
     EXPECT_TRUE(guard.poll(now + std::chrono::milliseconds{50}));
 
 }
+
+TEST(ManualInputGuardTest, ResetRevokesPermission)
+{
+    ManualInputGuard guard;
+    const auto now = ManualInputGuard::Clock::time_point{};
+
+    CrsfChannels channels{};
+    channels.values[manual_control_config::steering_channel] = manual_control_config::stick_center;
+    channels.values[manual_control_config::forward_channel] = manual_control_config::stick_center;
+    channels.values[manual_control_config::enable_channel] = manual_control_config::enable_high_min;
+
+    guard.on_channels(channels, now);
+    EXPECT_FALSE(guard.poll(now + std::chrono::milliseconds{10}));
+
+    channels.values[manual_control_config::enable_channel] = manual_control_config::enable_low_max;
+    guard.on_channels(channels, now + std::chrono::milliseconds{20});
+    EXPECT_FALSE(guard.poll(now + std::chrono::milliseconds{20}));
+
+    channels.values[manual_control_config::enable_channel] = manual_control_config::enable_high_min;
+    guard.on_channels(channels, now + std::chrono::milliseconds{30});
+    EXPECT_TRUE(guard.poll(now + std::chrono::milliseconds{30}));
+
+    guard.reset();
+    EXPECT_FALSE(guard.poll(now + std::chrono::milliseconds{40}));
+
+    guard.on_channels(channels, now + std::chrono::milliseconds{50});
+    EXPECT_FALSE(guard.poll(now + std::chrono::milliseconds{50}));
+}

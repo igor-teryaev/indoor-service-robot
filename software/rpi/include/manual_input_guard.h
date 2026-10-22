@@ -12,9 +12,8 @@ public:
     void on_channels(
         const CrsfChannels& channels,
         Clock::time_point now);
-
     bool poll(Clock::time_point now);
-
+    void reset();
 private:
     enum class State
     {

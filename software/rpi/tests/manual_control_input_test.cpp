@@ -52,3 +52,26 @@ TEST(ManualControlInputTest, MixedManualSticks)
     EXPECT_DOUBLE_EQ(results.left, -1.0/3.0);
     EXPECT_DOUBLE_EQ(results.right, 1.0);
 }
+
+TEST(ManualControlInputTest, ManualWheelsToCommand)
+{
+    ManualWheelDemand demand = {.left = 0.0, .right = 0.0};
+    WheelVelocityCommand results = manual_wheels_to_command(demand, 40);
+    EXPECT_EQ(results.left_velocity_mm_s, 0);
+    EXPECT_EQ(results.right_velocity_mm_s, 0);
+
+    demand = {.left = 1.0, .right = -1.0};
+    results = manual_wheels_to_command(demand, 40);
+    EXPECT_EQ(results.left_velocity_mm_s, 40);
+    EXPECT_EQ(results.right_velocity_mm_s, -40);
+
+    demand = {.left = 0.333, .right = -0.333};
+    results = manual_wheels_to_command(demand, 40);
+    EXPECT_EQ(results.left_velocity_mm_s, 13);
+    EXPECT_EQ(results.right_velocity_mm_s, -13);
+
+    demand = {.left = 0.3375, .right = -0.3375};
+    results = manual_wheels_to_command(demand, 40);
+    EXPECT_EQ(results.left_velocity_mm_s, 14);
+    EXPECT_EQ(results.right_velocity_mm_s, -14);
+}

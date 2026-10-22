@@ -63,6 +63,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             PRIVATE
             robot_core
     )
+
+    add_executable(
+            manual_control_probe
+            src/manual_control_probe_main.cpp
+    )
+
+    target_link_libraries(
+            manual_control_probe
+            PRIVATE
+            robot_core
+    )
 endif()
 
 target_link_libraries(

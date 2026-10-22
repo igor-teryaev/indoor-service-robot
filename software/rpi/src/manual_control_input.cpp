@@ -31,3 +31,14 @@ ManualWheelDemand mix_manual_sticks(double forward, double steering)
         .right = right / scale
     };
 }
+
+WheelVelocityCommand manual_wheels_to_command(
+    const ManualWheelDemand& demand,
+    std::int16_t max_velocity_mm_s)
+{
+    return WheelVelocityCommand
+    {
+        .left_velocity_mm_s = static_cast<std::int16_t>(std::lround(demand.left * max_velocity_mm_s)),
+        .right_velocity_mm_s = static_cast<std::int16_t>(std::lround(demand.right * max_velocity_mm_s))
+    };
+}

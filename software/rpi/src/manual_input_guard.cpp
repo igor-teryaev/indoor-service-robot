@@ -2,6 +2,12 @@
 
 #include "manual_control_config.h"
 
+void ManualInputGuard::reset()
+{
+    state_ = State::NeedsRearm;
+    has_channels_ = false;
+    last_channels_at_ = {};
+}
 
 bool ManualInputGuard::poll(Clock::time_point now)
 {
