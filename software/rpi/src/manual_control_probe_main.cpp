@@ -45,29 +45,54 @@ int main(int argc, char* argv[])
         bool received_channels = false;
         WheelVelocityCommand candidate_command{};
 
-        const auto bytes_read = receiver_port.read_some(buffer.data(), buffer.size());
+        bool receiver_drained = false;
 
-        if (bytes_read < 0)
+        for (unsigned batch = 0; batch < 32U; ++batch)
         {
-            std::cerr << "ELRS serial read failed\n";
-            return 1;
+            const auto bytes_read =
+                receiver_port.read_some(buffer.data(), buffer.size());
+
+            if (bytes_read < 0)
+            {
+                std::cerr << "ELRS serial read failed\n";
+                break;
+            }
+
+            if (bytes_read == 0)
+            {
+                receiver_drained = true;
+                break;
+            }
+
+            for (std::size_t i = 0;
+                 i < static_cast<std::size_t>(bytes_read);
+                 ++i)
+            {
+                if (decoder.feed_byte(buffer[i], frame) &&
+                    crsf_channels_decode(frame, channels))
+                {
+                    guard.on_channels(
+                        channels,
+                        ManualInputGuard::Clock::now());
+
+                    const auto wheels = mix_manual_sticks(
+                        normalize_manual_stick(
+                            channels.values[manual_control_config::forward_channel]),
+                        normalize_manual_stick(
+                            channels.values[manual_control_config::steering_channel]));
+
+                    candidate_command = manual_wheels_to_command(wheels, 40);
+                    received_channels = true;
+                }
+            }
         }
 
-        for (std::size_t i = 0;
-             i < static_cast<std::size_t>(bytes_read);
-             ++i)
+        if (!receiver_drained)
         {
-            if (decoder.feed_byte(buffer[i], frame) &&
-                crsf_channels_decode(frame, channels))
-            {
-                guard.on_channels(channels, ManualInputGuard::Clock::now());
-                const auto wheels = mix_manual_sticks(
-                    normalize_manual_stick(channels.values[manual_control_config::forward_channel]),
-                    normalize_manual_stick(channels.values[manual_control_config::steering_channel]));
-
-                candidate_command = manual_wheels_to_command(wheels, 40);
-                received_channels = true;
-            }
+            std::cerr << "ELRS receive drain failed; stopping\n";
+            guard.reset();
+            runner.set_wheel_command(WheelVelocityCommand{});
+            break;
         }
 
         const bool synchronized_before = runner.is_synchronized();

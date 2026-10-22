@@ -2729,11 +2729,7 @@ TEST(Stm32ClientRunnerPtyTest, LatestWheelCommandWinsOnNextTransmission)
     runner.set_wheel_command(
         newer_command);
 
-    /*
-     * The previous synchronized iteration already waited up to
-     * 50 ms after transmitting the first wheel frame, so the next
-     * wheel transmission is eligible now.
-     */
+    std::this_thread::sleep_for(std::chrono::milliseconds{55});
     runner.poll();
 
     const ProtocolFrame newer_wheel =

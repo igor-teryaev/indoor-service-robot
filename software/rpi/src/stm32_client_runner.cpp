@@ -373,7 +373,7 @@ bool Stm32ClientRunner::run_synchronized_iteration()
     const LinuxSerialPollResult poll_result =
         serial_port_.wait(
             false,
-            50);
+            1);
 
     if (poll_result.disconnected)
     {
@@ -516,7 +516,7 @@ bool Stm32ClientRunner::run_synchronizing_iteration()
     const LinuxSerialPollResult poll_result =
         serial_port_.wait(
             false,
-            50);
+            1);
 
     if (poll_result.disconnected)
     {
