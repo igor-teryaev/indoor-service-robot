@@ -81,7 +81,7 @@ int main(int argc, char* argv[])
                         normalize_manual_stick(
                             channels.values[manual_control_config::steering_channel]));
 
-                    candidate_command = manual_wheels_to_command(wheels, 40);
+                    candidate_command = manual_wheels_to_command(wheels, 120);
                     received_channels = true;
                 }
             }
