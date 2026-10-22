@@ -8,6 +8,11 @@ add_executable(
         wheel_velocity_command_converter_test.cpp
         stm32_link_session_test.cpp
         stm32_motion_session_test.cpp
+        crsf_crc8_test.cpp
+        crsf_frame_decoder_test.cpp
+        crsf_channels_test.cpp
+        manual_input_guard_test.cpp
+        manual_control_input_test.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -15,6 +20,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             indoor_service_robot_tests
             PRIVATE
             linux_serial_port_pty_test.cpp
+            linux_serial_port_config_test.cpp
     )
 
     target_link_libraries(

@@ -2,7 +2,8 @@
 
 #include <fcntl.h>
 #include <unistd.h>
-#include <termios.h>
+#include <asm/termbits.h>
+#include <sys/ioctl.h>
 #include <poll.h>
 #include <cerrno>
 #include <chrono>
@@ -13,9 +14,15 @@ LinuxSerialPort::~LinuxSerialPort()
 }
 
 bool LinuxSerialPort::open(
-    const std::string& device_path)
+    const std::string& device_path,
+    std::uint32_t baud_rate)
 {
     close();
+
+    if (baud_rate == 0U)
+    {
+        return false;
+    }
 
     fd_ = ::open(
         device_path.c_str(),
@@ -26,38 +33,27 @@ bool LinuxSerialPort::open(
         return false;
     }
 
-    termios tty = {};
+    termios2 tty{};
 
-    if (tcgetattr(fd_, &tty) != 0)
+    if (::ioctl(fd_, TCGETS2, &tty) != 0)
     {
         close();
         return false;
     }
 
-    cfmakeraw(&tty);
+    tty.c_iflag = 0U;
+    tty.c_oflag = 0U;
+    tty.c_lflag = 0U;
 
-    if (cfsetispeed(&tty, B115200) != 0 ||
-        cfsetospeed(&tty, B115200) != 0)
-    {
-        close();
-        return false;
-    }
+    // BOTHER selects the numeric rates in c_ispeed/c_ospeed.
+    tty.c_cflag = BOTHER | CS8 | CLOCAL | CREAD;
+    tty.c_ispeed = baud_rate;
+    tty.c_ospeed = baud_rate;
 
-    tty.c_cflag &= ~CSIZE;
-    tty.c_cflag |= CS8;
+    tty.c_cc[VMIN] = 1U;
+    tty.c_cc[VTIME] = 0U;
 
-    tty.c_cflag &= ~PARENB;
-    tty.c_cflag &= ~CSTOPB;
-
-    tty.c_cflag &= ~CRTSCTS;
-
-    tty.c_cflag |= CLOCAL;
-    tty.c_cflag |= CREAD;
-
-    if (tcsetattr(
-            fd_,
-            TCSANOW,
-            &tty) != 0)
+    if (::ioctl(fd_, TCSETS2, &tty) != 0)
     {
         close();
         return false;

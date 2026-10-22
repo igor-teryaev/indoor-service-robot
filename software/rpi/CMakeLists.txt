@@ -15,6 +15,11 @@ add_library(
         src/wheel_velocity_command_converter.cpp
         src/stm32_link_session.cpp
         src/stm32_motion_session.cpp
+        src/crsf_crc8.cpp
+        src/crsf_frame_decoder.cpp
+        src/crsf_channels.cpp
+        src/manual_input_guard.cpp
+        src/manual_control_input.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -44,6 +49,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     target_link_libraries(
             stm32_motion_probe
+            PRIVATE
+            robot_core
+    )
+
+    add_executable(
+            crsf_receiver_probe
+            src/crsf_receiver_probe_main.cpp
+    )
+
+    target_link_libraries(
+            crsf_receiver_probe
             PRIVATE
             robot_core
     )

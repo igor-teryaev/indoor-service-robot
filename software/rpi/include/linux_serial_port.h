@@ -27,7 +27,9 @@ public:
 
     [[nodiscard]] LinuxSerialPollResult wait(bool watch_write, int timeout_ms);
 
-    [[nodiscard]] bool open(const std::string& device_path);
+    [[nodiscard]] bool open(
+        const std::string& device_path,
+        std::uint32_t baud_rate = 115200U);
 
     void close();
 
