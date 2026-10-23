@@ -301,7 +301,10 @@ bool Stm32ClientRunner::run_synchronized_iteration()
             transport_failed_ = true;
             return false;
         }
-
+        std::cout
+            << "Wheel TX: left=" << command.left_velocity_mm_s
+            << ", right=" << command.right_velocity_mm_s
+            << '\n';
         last_wheel_transmit_time_ = std::chrono::steady_clock::now();
     }
 
