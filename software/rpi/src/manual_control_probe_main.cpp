@@ -40,8 +40,25 @@ int main(int argc, char* argv[])
     CrsfFrame frame{};
     CrsfChannels channels{};
 
+    auto last_receiver_service_at = ManualInputGuard::Clock::now();
+
     while (std::chrono::steady_clock::now() < deadline)
     {
+        const auto service_at = ManualInputGuard::Clock::now();
+
+        const bool recovering_receiver =
+            service_at - last_receiver_service_at >=
+            std::chrono::milliseconds{200};
+
+        last_receiver_service_at = service_at;
+
+        if (recovering_receiver)
+        {
+            runner.set_wheel_command(WheelVelocityCommand{});
+            guard.reset();
+            decoder.reset();
+        }
+
         bool received_channels = false;
         WheelVelocityCommand candidate_command{};
 
@@ -62,6 +79,12 @@ int main(int argc, char* argv[])
             {
                 receiver_drained = true;
                 break;
+            }
+
+            if (recovering_receiver)
+            {
+                // Discard buffered bytes without decoding them.
+                continue;
             }
 
             for (std::size_t i = 0;
@@ -93,6 +116,14 @@ int main(int argc, char* argv[])
             guard.reset();
             runner.set_wheel_command(WheelVelocityCommand{});
             break;
+        }
+
+        if (ManualInputGuard::Clock::now() - service_at >= std::chrono::milliseconds{200})
+        {
+            guard.reset();
+            decoder.reset();
+            runner.set_wheel_command(WheelVelocityCommand{});
+            received_channels = false;
         }
 
         const bool synchronized_before = runner.is_synchronized();

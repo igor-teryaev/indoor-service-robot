@@ -40,3 +40,15 @@ target_link_libraries(
 include(GoogleTest)
 
 gtest_discover_tests(indoor_service_robot_tests)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+    add_test(
+            NAME ManualControlRejectsBufferedRearmAfterPause
+            COMMAND
+            Python3::Interpreter
+            ${CMAKE_CURRENT_SOURCE_DIR}/manual_control_recovery_test.py
+            $<TARGET_FILE:manual_control_probe>
+    )
+endif()

@@ -1537,9 +1537,7 @@ TEST(
     ::close(master_fd);
 }
 
-TEST(
-    Stm32ClientRunnerPtyTest,
-    FreshNonzeroWheelDemandStartsMotionSession)
+TEST(Stm32ClientRunnerPtyTest, FreshNonzeroWheelDemandStartsMotionSession)
 {
     int master_fd = -1;
     int slave_fd = -1;
@@ -3428,6 +3426,105 @@ TEST(Stm32ClientRunnerPtyTest, ActiveMotionIsNotReplayedAfterReconnect)
             1,
             0),
         0);
+
+    ::close(master_fd);
+}
+
+TEST(Stm32ClientRunnerPtyTest, StaleWheelDemandDoesNotStartMotionSession)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(
+            &master_fd,
+            &slave_fd,
+            slave_name,
+            nullptr,
+            nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(slave_name);
+
+    runner.poll();
+
+    const ProtocolFrame sync =
+        read_frame_from_pty_master(master_fd);
+
+    ASSERT_EQ(
+        sync.message_type,
+        PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload sync_payload = {};
+
+    link_sync_decode(
+        sync.payload,
+        &sync_payload);
+
+    ProtocolFrame sync_ok =
+    {
+        .message_type = PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+        .sequence = sync.sequence,
+        .payload_length = LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(&sync_payload, sync_ok.payload);
+
+    std::uint8_t sync_ok_wire[PROTOCOL_FRAME_MAX_WIRE_SIZE] = {};
+
+    const std::size_t sync_ok_wire_size =
+        protocol_frame_encode(
+            &sync_ok,
+            sync_ok_wire);
+
+    ASSERT_GT(sync_ok_wire_size, 0U);
+
+    ASSERT_EQ(
+        ::write(
+            master_fd,
+            sync_ok_wire,
+            sync_ok_wire_size),
+        static_cast<ssize_t>(
+            sync_ok_wire_size));
+
+    runner.poll(); // Process LINK_SYNC_OK.
+
+    const WheelVelocityCommand command{
+        .left_velocity_mm_s = 100,
+        .right_velocity_mm_s = 100
+    };
+
+    runner.set_wheel_command(command);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(210));
+
+    runner.poll();
+
+    pollfd descriptor{
+        .fd = master_fd,
+        .events = POLLIN,
+        .revents = 0
+    };
+
+    int ready = 0;
+
+    while ((ready = ::poll(&descriptor, 1, 0)) > 0)
+    {
+        ASSERT_NE(descriptor.revents & POLLIN, 0);
+
+        const ProtocolFrame outgoing = read_frame_from_pty_master(master_fd);
+
+        EXPECT_NE(
+            outgoing.message_type,
+            PROTOCOL_MESSAGE_TYPE_MOTION_COMMAND);
+
+        descriptor.revents = 0;
+    }
+
+    EXPECT_EQ(ready, 0);
 
     ::close(master_fd);
 }

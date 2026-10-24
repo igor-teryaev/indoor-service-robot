@@ -215,8 +215,10 @@ bool Stm32ClientRunner::run_synchronized_iteration()
             << std::endl;
     }
 
+    const auto start_decision_time = std::chrono::steady_clock::now();
+
     if (motion_session_.state() == Stm32MotionSession::State::Inactive &&
-        has_fresh_wheel_command(current_time) &&
+        has_fresh_wheel_command(start_decision_time) &&
         !is_zero_wheel_command(latest_wheel_command_.value()))
     {
         do
@@ -273,11 +275,13 @@ bool Stm32ClientRunner::run_synchronized_iteration()
             << std::endl;
     }
 
+    const auto wheel_decision_time = std::chrono::steady_clock::now();
+
     if (motion_session_.state() == Stm32MotionSession::State::Active &&
-        has_fresh_wheel_command(current_time) &&
+        has_fresh_wheel_command(wheel_decision_time) &&
         !is_zero_wheel_command(latest_wheel_command_.value()) &&
         (last_wheel_transmit_time_ == std::chrono::steady_clock::time_point{} ||
-            current_time - last_wheel_transmit_time_ >=wheel_tx_period_))
+            wheel_decision_time - last_wheel_transmit_time_ >=wheel_tx_period_))
     {
         const WheelVelocityCommand& command =
             latest_wheel_command_.value();
@@ -309,7 +313,7 @@ bool Stm32ClientRunner::run_synchronized_iteration()
     }
 
     if (motion_session_.state() == Stm32MotionSession::State::Active &&
-        (!has_fresh_wheel_command(current_time) ||
+        (!has_fresh_wheel_command(wheel_decision_time) ||
             is_zero_wheel_command(latest_wheel_command_.value())))
     {
         const auto motion_end =
