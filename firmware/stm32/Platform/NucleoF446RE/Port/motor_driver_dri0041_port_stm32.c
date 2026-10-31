@@ -58,7 +58,7 @@ bool motor_driver_dri0041_port_init(void)
 
     __HAL_TIM_SET_COMPARE(
         &htim8,
-        TIM_CHANNEL_1,
+        TIM_CHANNEL_4,
         0U);
 
     __HAL_TIM_SET_COMPARE(
@@ -68,7 +68,7 @@ bool motor_driver_dri0041_port_init(void)
 
     if (HAL_TIM_PWM_Start(
             &htim8,
-            TIM_CHANNEL_1) != HAL_OK)
+            TIM_CHANNEL_4) != HAL_OK)
     {
         return false;
     }
@@ -79,7 +79,7 @@ bool motor_driver_dri0041_port_init(void)
     {
         (void)HAL_TIM_PWM_Stop(
             &htim8,
-            TIM_CHANNEL_1);
+            TIM_CHANNEL_4);
 
         return false;
     }
@@ -122,7 +122,7 @@ bool motor_driver_dri0041_port_apply(
 
     __HAL_TIM_SET_COMPARE(
         &htim8,
-        TIM_CHANNEL_1,
+        TIM_CHANNEL_4,
         left_compare);
 
     __HAL_TIM_SET_COMPARE(
