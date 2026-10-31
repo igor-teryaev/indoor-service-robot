@@ -59,12 +59,12 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define DRI0041_LEFT_IN2_Pin GPIO_PIN_5
 #define DRI0041_LEFT_IN2_GPIO_Port GPIOC
-#define DRI0041_RIGHT_IN4_Pin GPIO_PIN_10
-#define DRI0041_RIGHT_IN4_GPIO_Port GPIOB
-#define DRI0041_LEFT_IN1_Pin GPIO_PIN_7
-#define DRI0041_LEFT_IN1_GPIO_Port GPIOC
 #define DRI0041_RIGHT_IN3_Pin GPIO_PIN_9
 #define DRI0041_RIGHT_IN3_GPIO_Port GPIOC
+#define DRI0041_LEFT_IN1_Pin GPIO_PIN_8
+#define DRI0041_LEFT_IN1_GPIO_Port GPIOB
+#define DRI0041_RIGHT_IN4_Pin GPIO_PIN_9
+#define DRI0041_RIGHT_IN4_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
