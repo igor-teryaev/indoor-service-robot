@@ -41,6 +41,7 @@ int main(int argc, char* argv[])
     CrsfChannels channels{};
 
     auto last_receiver_service_at = ManualInputGuard::Clock::now();
+    bool discarding_receiver_backlog = false;
 
     while (std::chrono::steady_clock::now() < deadline)
     {
@@ -54,6 +55,7 @@ int main(int argc, char* argv[])
 
         if (recovering_receiver)
         {
+            discarding_receiver_backlog = true;
             runner.set_wheel_command(WheelVelocityCommand{});
             guard.reset();
             decoder.reset();
@@ -63,6 +65,7 @@ int main(int argc, char* argv[])
         WheelVelocityCommand candidate_command{};
 
         bool receiver_drained = false;
+        bool receiver_read_failed = false;
 
         for (unsigned batch = 0; batch < 32U; ++batch)
         {
@@ -72,6 +75,7 @@ int main(int argc, char* argv[])
             if (bytes_read < 0)
             {
                 std::cerr << "ELRS serial read failed\n";
+                receiver_read_failed = true;
                 break;
             }
 
@@ -81,7 +85,7 @@ int main(int argc, char* argv[])
                 break;
             }
 
-            if (recovering_receiver)
+            if (discarding_receiver_backlog)
             {
                 // Discard buffered bytes without decoding them.
                 continue;
@@ -110,12 +114,26 @@ int main(int argc, char* argv[])
             }
         }
 
-        if (!receiver_drained)
+        if (receiver_read_failed)
         {
-            std::cerr << "ELRS receive drain failed; stopping\n";
             guard.reset();
             runner.set_wheel_command(WheelVelocityCommand{});
             break;
+        }
+
+        if (!receiver_drained)
+        {
+            // Reading limit reached. Continue discarding next iteration.
+            discarding_receiver_backlog = true;
+            guard.reset();
+            decoder.reset();
+            runner.set_wheel_command(WheelVelocityCommand{});
+            received_channels = false;
+        }
+        else if (discarding_receiver_backlog)
+        {
+            // Buffered data discarded. Accept only subsequent fresh frames.
+            discarding_receiver_backlog = false;
         }
 
         if (ManualInputGuard::Clock::now() - service_at >= std::chrono::milliseconds{200})

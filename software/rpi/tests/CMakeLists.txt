@@ -51,4 +51,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             ${CMAKE_CURRENT_SOURCE_DIR}/manual_control_recovery_test.py
             $<TARGET_FILE:manual_control_probe>
     )
+
+    add_test(
+            NAME ManualControlSurvivesBufferedBacklogAfterPause
+            COMMAND
+            Python3::Interpreter
+            ${CMAKE_CURRENT_SOURCE_DIR}/manual_control_backlog_recovery_test.py
+            $<TARGET_FILE:manual_control_probe>
+    )
 endif()
