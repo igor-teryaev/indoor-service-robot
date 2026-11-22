@@ -2,6 +2,8 @@ add_executable(robot_protocol_tests
         byte_codec_test.cpp
         wheel_velocity_codec_test.cpp
         wheel_velocity_payload_codec_test.cpp
+        wheel_speed_telemetry_payload_codec_test.cpp
+        wheel_speed_telemetry_frame_test.cpp
         motion_lifecycle_command_codec_test.cpp
         motion_ack_codec_test.cpp
         motion_response_codec_test.cpp

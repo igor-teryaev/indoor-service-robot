@@ -145,3 +145,30 @@ target_link_libraries(
 )
 
 gtest_discover_tests(wheel_speed_estimator_tests)
+
+add_executable(wheel_speed_telemetry_adapter_tests
+        wheel_speed_telemetry_adapter_test.cpp
+        ../Src/wheel_speed_telemetry_adapter.c
+)
+
+target_compile_features(
+        wheel_speed_telemetry_adapter_tests
+        PRIVATE
+        c_std_99
+        cxx_std_20
+)
+
+target_include_directories(
+        wheel_speed_telemetry_adapter_tests
+        PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/../Inc
+)
+
+target_link_libraries(
+        wheel_speed_telemetry_adapter_tests
+        PRIVATE
+        robot_protocol
+        GTest::gtest_main
+)
+
+gtest_discover_tests(wheel_speed_telemetry_adapter_tests)

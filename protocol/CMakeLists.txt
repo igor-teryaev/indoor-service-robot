@@ -2,6 +2,8 @@ add_library(robot_protocol
         byte_codec.c
         wheel_velocity_codec.c
         wheel_velocity_payload_codec.c
+        wheel_speed_telemetry_payload_codec.c
+        wheel_speed_telemetry_frame.c
         motion_lifecycle_command_codec.c
         motion_ack_codec.c
         motion_response_codec.c

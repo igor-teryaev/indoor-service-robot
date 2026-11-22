@@ -33,6 +33,9 @@
 #include "protocol_message_type.h"
 #include "wheel_encoder.h"
 #include "wheel_speed_estimator.h"
+#include "uart_protocol_transmitter.h"
+#include "wheel_speed_telemetry_adapter.h"
+#include "wheel_speed_telemetry_frame.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,6 +67,7 @@ static Stm32MotionProtocolManager motion_protocol_manager;
 static WheelSpeedEstimator wheel_speed_estimator;
 static volatile WheelSpeedEstimate wheel_speed_estimate;
 static uint32_t last_speed_sample_ms;
+static uint16_t telemetry_sequence;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -182,6 +186,7 @@ int main(void)
   while (1)
   {
     const uint32_t now_ms = HAL_GetTick();
+    bool speed_sampled = false;
 
     const Stm32MotionProtocolManagerResult motion_update =
         stm32_motion_protocol_manager_update(
@@ -204,6 +209,7 @@ int main(void)
           now_ms);
 
       last_speed_sample_ms = now_ms;
+      speed_sampled = true;
     }
 
     const ProtocolFrame *frame = NULL;
@@ -283,6 +289,26 @@ int main(void)
       stm32_motion_protocol_manager_reset(&motion_protocol_manager);
     }
 
+    if (speed_sampled &&
+      (link_update == UART_LINK_MANAGER_UPDATE_NONE) &&
+      uart_link_manager_is_synchronized())
+    {
+      const WheelSpeedEstimate estimate = wheel_speed_estimate;
+
+      const WheelSpeedTelemetryPayload payload =
+          wheel_speed_telemetry_payload_from_estimate(&estimate);
+
+      const ProtocolFrame telemetry_frame =
+          wheel_speed_telemetry_frame_build(
+              &payload,
+              telemetry_sequence);
+
+      if (uart_protocol_transmitter_try_send_telemetry(
+              &telemetry_frame))
+      {
+        ++telemetry_sequence;
+      }
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

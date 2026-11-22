@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include "linux_serial_port.h"
 #include "stm32_motion_session.h"
 #include <algorithm>
@@ -23,6 +24,7 @@ extern "C"
 #include "motion_response_codec.h"
 #include "wheel_velocity_payload_codec.h"
 #include "heartbeat_codec.h"
+#include "wheel_speed_telemetry_frame.h"
 }
 
 static ProtocolFrame read_frame_from_pty_master(
@@ -3527,4 +3529,154 @@ TEST(Stm32ClientRunnerPtyTest, StaleWheelDemandDoesNotStartMotionSession)
     EXPECT_EQ(ready, 0);
 
     ::close(master_fd);
+}
+
+TEST(Stm32ClientRunnerPtyTest, ReceivesWheelSpeedTelemetryWithoutDisconnecting)
+{
+    int master_fd = -1;
+    int slave_fd = -1;
+    char slave_name[128] = {};
+
+    ASSERT_EQ(
+        ::openpty(&master_fd, &slave_fd, slave_name, nullptr, nullptr),
+        0);
+
+    ::close(slave_fd);
+
+    Stm32ClientRunner runner(slave_name);
+
+    // Establish a synchronized link.
+    runner.poll();
+
+    const ProtocolFrame sync = read_frame_from_pty_master(master_fd);
+    ASSERT_EQ(sync.message_type, PROTOCOL_MESSAGE_TYPE_LINK_SYNC);
+
+    LinkSyncPayload sync_payload{};
+    link_sync_decode(sync.payload, &sync_payload);
+
+    ProtocolFrame sync_ok{
+        .message_type = PROTOCOL_MESSAGE_TYPE_LINK_SYNC_OK,
+        .sequence = sync.sequence,
+        .payload_length = LINK_SYNC_WIRE_SIZE
+    };
+
+    link_sync_encode(&sync_payload, sync_ok.payload);
+
+    std::array<uint8_t, PROTOCOL_FRAME_MAX_WIRE_SIZE> wire{};
+    size_t wire_size = protocol_frame_encode(&sync_ok, wire.data());
+
+    ASSERT_GT(wire_size, 0U);
+    ASSERT_EQ(
+        ::write(master_fd, wire.data(), wire_size),
+        static_cast<ssize_t>(wire_size));
+
+    runner.poll();
+
+    ASSERT_TRUE(runner.is_synchronized());
+    EXPECT_FALSE(runner.latest_wheel_speed_telemetry().has_value());
+
+    // Simulate a wheel speed telemetry frame from STM32.
+    const WheelSpeedTelemetryPayload expected{
+        .left_speed_mm_s = 300,
+        .right_speed_mm_s = 125,
+        .valid = true
+    };
+
+    const ProtocolFrame telemetry =
+        wheel_speed_telemetry_frame_build(&expected, 42U);
+
+    wire_size = protocol_frame_encode(&telemetry, wire.data());
+
+    ASSERT_GT(wire_size, 0U);
+    ASSERT_EQ(
+        ::write(master_fd, wire.data(), wire_size),
+        static_cast<ssize_t>(wire_size));
+
+    runner.poll();
+
+    const auto received = runner.latest_wheel_speed_telemetry();
+
+    ASSERT_TRUE(received.has_value());
+    EXPECT_TRUE(received->valid);
+    EXPECT_EQ(received->left_speed_mm_s, 300U);
+    EXPECT_EQ(received->right_speed_mm_s, 125U);
+
+    EXPECT_TRUE(runner.is_synchronized());
+
+    // Wait until the next heartbeat is transmitted.
+    std::this_thread::sleep_for(std::chrono::milliseconds(260));
+    runner.poll();
+
+    const ProtocolFrame heartbeat =
+        read_frame_from_pty_master(master_fd);
+
+    ASSERT_EQ(
+        heartbeat.message_type,
+        PROTOCOL_MESSAGE_TYPE_HEARTBEAT);
+
+    // Prepare a valid heartbeat response.
+    const HeartbeatPayload heartbeat_payload{
+        .link_state = LINK_STATE_SYNCHRONIZED,
+        .uptime_ms = 1234U
+    };
+
+    ProtocolFrame heartbeat_response{
+        .message_type = PROTOCOL_MESSAGE_TYPE_HEARTBEAT,
+        .sequence = heartbeat.sequence,
+        .payload_length = HEARTBEAT_WIRE_SIZE
+    };
+
+    heartbeat_encode(
+        &heartbeat_payload,
+        heartbeat_response.payload);
+
+    // Prepare another telemetry frame.
+    const WheelSpeedTelemetryPayload updated_speed{
+        .left_speed_mm_s = 250,
+        .right_speed_mm_s = 180,
+        .valid = true
+    };
+
+    const ProtocolFrame updated_telemetry =
+        wheel_speed_telemetry_frame_build(&updated_speed, 43U);
+
+    // Send both frames together.
+    std::array<uint8_t, 2 * PROTOCOL_FRAME_MAX_WIRE_SIZE> combined{};
+
+    const size_t telemetry_size =
+        protocol_frame_encode(
+            &updated_telemetry,
+            combined.data());
+
+    const size_t heartbeat_size =
+        protocol_frame_encode(
+            &heartbeat_response,
+            combined.data() + telemetry_size);
+
+    ASSERT_GT(telemetry_size, 0U);
+    ASSERT_GT(heartbeat_size, 0U);
+
+    const size_t combined_size = telemetry_size + heartbeat_size;
+
+    ASSERT_EQ(
+        ::write(master_fd, combined.data(), combined_size),
+        static_cast<ssize_t>(combined_size));
+
+    runner.poll();
+
+    const auto latest = runner.latest_wheel_speed_telemetry();
+
+    ASSERT_TRUE(latest.has_value());
+    EXPECT_TRUE(latest->valid);
+    EXPECT_EQ(latest->left_speed_mm_s, 250U);
+    EXPECT_EQ(latest->right_speed_mm_s, 180U);
+    EXPECT_TRUE(runner.is_synchronized());
+
+    // Simulate STM32 disconnection.
+    ::close(master_fd);
+
+    runner.poll();
+
+    EXPECT_FALSE(runner.is_synchronized());
+    EXPECT_FALSE(runner.latest_wheel_speed_telemetry().has_value());
 }

@@ -9,6 +9,7 @@
 extern "C"
 {
 #include "protocol_frame_decoder.h"
+#include "wheel_speed_telemetry_payload_codec.h"
 }
 
 Stm32ClientRunner::Stm32ClientRunner(
@@ -421,6 +422,22 @@ bool Stm32ClientRunner::run_synchronized_iteration()
             continue;
         }
 
+        if (frame->message_type == PROTOCOL_MESSAGE_TYPE_WHEEL_SPEED_TELEMETRY)
+        {
+            if (frame->payload_length == WHEEL_SPEED_TELEMETRY_PAYLOAD_WIRE_SIZE)
+            {
+                WheelSpeedTelemetryPayload payload{};
+
+                wheel_speed_telemetry_payload_decode(
+                    frame->payload,
+                    &payload);
+
+                latest_wheel_speed_telemetry_ = payload;
+            }
+
+            continue;
+        }
+
         const auto response_time =
             std::chrono::steady_clock::now();
 
@@ -608,6 +625,7 @@ bool Stm32ClientRunner::begin_connection_epoch()
     link_session_.disconnect();
     motion_session_.reset();
     motion_session_id_ = 0U;
+    latest_wheel_speed_telemetry_.reset();
     latest_wheel_command_.reset();
     latest_wheel_command_time_ = {};
     last_wheel_transmit_time_ = {};
@@ -667,7 +685,7 @@ void Stm32ClientRunner::disconnect_current_epoch()
     link_session_.disconnect();
     motion_session_.reset();
     motion_session_id_ = 0U;
-
+    latest_wheel_speed_telemetry_.reset();
     latest_wheel_command_.reset();
     latest_wheel_command_time_ = {};
     last_wheel_transmit_time_ = {};
@@ -701,4 +719,9 @@ bool Stm32ClientRunner::is_zero_wheel_command(const WheelVelocityCommand& comman
 bool Stm32ClientRunner::is_synchronized() const
 {
     return state_ == State::Synchronized;
+}
+
+std::optional<WheelSpeedTelemetryPayload> Stm32ClientRunner::latest_wheel_speed_telemetry() const
+{
+    return latest_wheel_speed_telemetry_;
 }

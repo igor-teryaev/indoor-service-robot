@@ -167,6 +167,35 @@ int main(int argc, char* argv[])
 
         const bool synchronized = runner.is_synchronized();
 
+        static auto last_telemetry_print = std::chrono::steady_clock::now();
+
+        const auto now = std::chrono::steady_clock::now();
+
+        if (synchronized &&
+            now - last_telemetry_print >= std::chrono::seconds{1})
+        {
+            last_telemetry_print = now;
+
+            const auto telemetry =
+                runner.latest_wheel_speed_telemetry();
+
+            if (telemetry.has_value())
+            {
+                std::cout
+                    << "Wheel speed: left="
+                    << telemetry->left_speed_mm_s
+                    << " mm/s, right="
+                    << telemetry->right_speed_mm_s
+                    << " mm/s, valid="
+                    << (telemetry->valid ? "true" : "false")
+                    << '\n';
+            }
+            else
+            {
+                std::cout << "Wheel speed: waiting for telemetry\n";
+            }
+        }
+
         if (!synchronized)
         {
             guard.reset();

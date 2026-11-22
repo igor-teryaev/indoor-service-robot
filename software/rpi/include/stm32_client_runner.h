@@ -13,6 +13,7 @@ extern "C"
 {
 #include "wheel_velocity_command.h"
 #include "protocol_frame_decoder.h"
+#include "wheel_speed_telemetry_payload.h"
 }
 
 class Stm32ClientRunner
@@ -25,6 +26,9 @@ public:
     void set_wheel_command(const WheelVelocityCommand& command);
 
     [[nodiscard]] bool is_synchronized() const;
+
+    [[nodiscard]] std::optional<WheelSpeedTelemetryPayload>
+latest_wheel_speed_telemetry() const;
 private:
     enum class State
     {
@@ -39,6 +43,7 @@ private:
     [[nodiscard]] bool run_synchronized_iteration();
     [[nodiscard]] bool has_fresh_wheel_command(std::chrono::steady_clock::time_point now) const;
     [[nodiscard]] static bool is_zero_wheel_command(const WheelVelocityCommand& command);
+
     void disconnect_current_epoch();
     void schedule_reconnect();
 
@@ -58,10 +63,10 @@ private:
 
     std::mt19937_64 random_generator_;
 
+    std::optional<WheelSpeedTelemetryPayload> latest_wheel_speed_telemetry_;
     std::optional<WheelVelocityCommand> latest_wheel_command_;
     std::chrono::steady_clock::time_point latest_wheel_command_time_ = {};
     static constexpr std::chrono::milliseconds wheel_tx_period_{50};
     std::chrono::steady_clock::time_point last_wheel_transmit_time_ = {};
     static constexpr std::chrono::milliseconds wheel_command_freshness_{200};
-
 };
